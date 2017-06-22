@@ -281,7 +281,7 @@
 			"go_to": null,
 			"output": {
 				"text": {
-					"values": ["Pizza $pizza_type is a good choice. But mind, pepperonny is very hot."]
+					"values": ["$pizza_type is a good choice. But be warned, pepperoni is very hot."]
 				}
 			},
 			"parent": "slot_6_1494421302730",
