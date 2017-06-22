@@ -1,0 +1,262 @@
+{
+	"name": "Pizza_basic",
+	"created": "2017-05-10T12:30:42.265Z",
+	"intents": [{
+			"intent": "order",
+			"created": "2017-05-10T12:35:32.610Z",
+			"updated": "2017-05-10T12:35:32.610Z",
+			"examples": [{
+					"text": "Can I get a pizza margarita, small please",
+					"created": "2017-05-10T12:35:32.610Z",
+					"updated": "2017-05-10T12:35:32.610Z"
+				}, {
+					"text": "I am hungry",
+					"created": "2017-05-10T12:35:32.610Z",
+					"updated": "2017-05-10T12:35:32.610Z"
+				}, {
+					"text": "I want to order a large pizza",
+					"created": "2017-05-10T12:35:32.610Z",
+					"updated": "2017-05-10T12:35:32.610Z"
+				}, {
+					"text": "I want to order a pizza",
+					"created": "2017-05-10T12:35:32.610Z",
+					"updated": "2017-05-10T12:35:32.610Z"
+				}
+			],
+			"description": null
+		}
+	],
+	"updated": "2017-05-11T12:56:56.561Z",
+	"entities": [{
+			"entity": "pizza_size",
+			"values": [{
+					"value": "large",
+					"created": "2017-05-10T12:39:53.170Z",
+					"updated": "2017-05-10T12:39:53.170Z",
+					"metadata": null,
+					"synonyms": []
+				}, {
+					"value": "medium",
+					"created": "2017-05-10T12:39:53.170Z",
+					"updated": "2017-05-10T12:39:53.170Z",
+					"metadata": null,
+					"synonyms": ["regular"]
+				}, {
+					"value": "small",
+					"created": "2017-05-10T12:39:53.170Z",
+					"updated": "2017-05-10T12:39:53.170Z",
+					"metadata": null,
+					"synonyms": []
+				}
+			],
+			"created": "2017-05-10T12:39:53.170Z",
+			"updated": "2017-05-10T12:39:53.170Z",
+			"metadata": null,
+			"description": null
+		}, {
+			"entity": "pizza_type",
+			"values": [{
+					"value": "margarita",
+					"created": "2017-05-10T12:38:35.216Z",
+					"updated": "2017-05-10T12:38:35.216Z",
+					"metadata": null,
+					"synonyms": []
+				}, {
+					"value": "pepperoni",
+					"created": "2017-05-10T12:38:35.216Z",
+					"updated": "2017-05-10T16:03:01.134Z",
+					"metadata": null,
+					"synonyms": []
+				}, {
+					"value": "quatro formaggi",
+					"created": "2017-05-10T12:38:35.216Z",
+					"updated": "2017-05-10T12:38:35.216Z",
+					"metadata": null,
+					"synonyms": []
+				}, {
+					"value": "vegetarin",
+					"created": "2017-05-10T12:38:35.216Z",
+					"updated": "2017-05-10T12:38:35.216Z",
+					"metadata": null,
+					"synonyms": ["vegetariana"]
+				}
+			],
+			"created": "2017-05-10T12:38:35.216Z",
+			"updated": "2017-05-10T16:03:01.134Z",
+			"metadata": null,
+			"description": null
+		}
+	],
+	"language": "en",
+	"metadata": null,
+	"description": "Basic pizza ordering example",
+	"dialog_nodes": [{
+			"go_to": null,
+			"output": {
+				"text": {
+					"values": ["Welcome to Pizza Basic Demonstration, you can order a pizza out of few selected types and sizes."],
+					"selection_policy": "sequential"
+				}
+			},
+			"parent": null,
+			"context": null,
+			"created": "2017-05-10T12:56:05.404Z",
+			"updated": "2017-05-11T12:48:41.876Z",
+			"metadata": null,
+			"conditions": "welcome",
+			"description": null,
+			"dialog_node": "Welcome",
+			"previous_sibling": null
+		}, {
+			"go_to": null,
+			"output": {
+				"text": {
+					"values": ["Your order of $pizza_type pizza of $pizza_size size is recorded."],
+					"selection_policy": "sequential"
+				}
+			},
+			"parent": "Pizza ordering",
+			"context": null,
+			"created": "2017-05-10T13:38:33.302Z",
+			"updated": "2017-05-11T12:56:56.561Z",
+			"metadata": null,
+			"conditions": "true",
+			"description": null,
+			"dialog_node": "Summary of the order",
+			"previous_sibling": null
+		}, {
+			"go_to": null,
+			"output": {
+				"text": {
+					"values": ["I didn't understand. You can try rephrasing.", "Can you reword your statement? I'm not understanding.", "I didn't get your meaning."],
+					"selection_policy": "sequential"
+				}
+			},
+			"parent": null,
+			"context": null,
+			"created": "2017-05-10T12:56:05.404Z",
+			"updated": "2017-05-11T12:55:04.683Z",
+			"metadata": null,
+			"conditions": "anything_else",
+			"description": null,
+			"dialog_node": "Fallback",
+			"previous_sibling": "Pizza ordering"
+		}, {
+			"type": "frame",
+			"go_to": {
+				"return": null,
+				"selector": "body",
+				"dialog_node": "Summary of the order"
+			},
+			"output": {
+				"text": {
+					"values": ["Thank you for ordering $pizza_type of $pizza_size size."],
+					"selection_policy": "sequential"
+				}
+			},
+			"parent": null,
+			"context": null,
+			"created": "2017-05-10T13:00:21.166Z",
+			"updated": "2017-05-11T12:55:59.920Z",
+			"metadata": null,
+			"conditions": "#order",
+			"description": null,
+			"dialog_node": "Pizza ordering",
+			"previous_sibling": "Welcome"
+		}, {
+			"type": "event_handler",
+			"go_to": null,
+			"output": null,
+			"parent": "slot_3_1494421237824",
+			"context": {
+				"pizza_size": "@pizza_size"
+			},
+			"created": "2017-05-10T13:01:26.430Z",
+			"updated": "2017-05-10T13:01:32.391Z",
+			"metadata": null,
+			"conditions": "@pizza_size",
+			"event_name": "input",
+			"description": null,
+			"dialog_node": "handler_5_1494421285663",
+			"previous_sibling": "handler_4_1494421274527"
+		}, {
+			"type": "event_handler",
+			"go_to": null,
+			"output": null,
+			"parent": "slot_6_1494421302730",
+			"context": {
+				"pizza_type": "@pizza_type"
+			},
+			"created": "2017-05-10T13:02:28.495Z",
+			"updated": "2017-05-10T13:02:29.680Z",
+			"metadata": null,
+			"conditions": "@pizza_type",
+			"event_name": "input",
+			"description": null,
+			"dialog_node": "handler_8_1494421347721",
+			"previous_sibling": "handler_7_1494421336855"
+		}, {
+			"type": "event_handler",
+			"go_to": null,
+			"output": {
+				"text": "What size of pizza do you want?"
+			},
+			"parent": "slot_3_1494421237824",
+			"context": null,
+			"created": "2017-05-10T13:01:15.728Z",
+			"updated": "2017-05-11T12:54:17.873Z",
+			"metadata": null,
+			"conditions": null,
+			"event_name": "focus",
+			"description": null,
+			"dialog_node": "handler_4_1494421274527",
+			"previous_sibling": null
+		}, {
+			"type": "event_handler",
+			"go_to": null,
+			"output": {
+				"text": "What type of pizza do you want?"
+			},
+			"parent": "slot_6_1494421302730",
+			"context": null,
+			"created": "2017-05-10T13:02:17.625Z",
+			"updated": "2017-05-10T14:10:30.322Z",
+			"metadata": null,
+			"conditions": null,
+			"event_name": "focus",
+			"description": null,
+			"dialog_node": "handler_7_1494421336855",
+			"previous_sibling": null
+		}, {
+			"type": "slot",
+			"go_to": null,
+			"output": null,
+			"parent": "Pizza ordering",
+			"context": null,
+			"created": "2017-05-10T13:00:38.580Z",
+			"updated": "2017-05-10T13:01:32.375Z",
+			"metadata": null,
+			"variable": "$pizza_size",
+			"conditions": null,
+			"description": null,
+			"dialog_node": "slot_3_1494421237824",
+			"previous_sibling": "Summary of the order"
+		}, {
+			"type": "slot",
+			"go_to": null,
+			"output": null,
+			"parent": "Pizza ordering",
+			"context": null,
+			"created": "2017-05-10T13:01:43.540Z",
+			"updated": "2017-05-10T13:02:28.531Z",
+			"metadata": null,
+			"variable": "$pizza_type",
+			"conditions": null,
+			"description": null,
+			"dialog_node": "slot_6_1494421302730",
+			"previous_sibling": "slot_3_1494421237824"
+		}
+	],
+	"workspace_id": "49e73885-6c71-4844-ba6b-1bc64c7050a2",
+	"counterexamples": []
+}
