@@ -20,30 +20,44 @@ __Features demonstrated__
 
 + User can provide all information in one sentence:
 
-   - Example: "I'd like to order a small pepperoni pizza"
+   - Example: 
+   
+         User: "I'd like to order a small pepperoni pizza"
 
 
 + User can provide information by each prompt:
 
-   - Example: "I'd like to order a pizza" 
+   - Example: 
+      
+         User: "I'd like to order a pizza" 
    
-        "What size?" "Small"
+         Bot: "What size?" 
+         
+         User: "Small"
         
-        "What type?" "Pepperoni"
+         Bot: "What type?" 
+         
+         User: "Pepperoni"
 
 + User can provide information by answering a different prompt:
 
-   - Example: "I'd like to order a pizza" 
+   - Example: 
+      
+         User: "I'd like to order a pizza" 
    
-        "What size?" "Pepperoni"
+         Bot: "What size?" 
+         
+         User: "Pepperoni"
         
-        "What type?" "Small"
+         Bot: "What type?" 
+         
+         User: "Small"
 
 Additional information: 
 - If the slots values are set by entities of a non overlapping types, detecting the response is straight forward. The special case when entity values overlap is addressed by a separate example (see [Booking travel - overlapping entitites](#booking-travel-overlapping-entitites)).
-- The node on the right of the slot is executed after completing the slot.
-- When execution of the slot is completed (all slots are filled), a summary can be reported, and the result can be stored as part of the responses section of the frame or by following nodes. 
-- When the slot is reentered (without clearing the variables), it continues without asking for prefilled values. This might be a desired behavior, if one wants to continue. If one wants to start from scratch, the context variables of the slot should be set to null before reentering the frame
+- The node on the right of the node with slots is executed after completing the slots.
+- When execution of the node with slots is completed (all slots are filled), a summary can be reported, and the result can be stored as part of the responses section of the node with slots or by following nodes. 
+- When the node with slots is reentered (without clearing the variables), it continues without asking for prefilled values. This might be a desired behavior, if one wants to continue. If one wants to start from scratch, the context variables of the node with slots should be set to null before reentering the node with slots
 e.g. by setting "context":{"pizza_type":null, "pizza_size":null}
 
 ### Ordering pizza - advanced <a id="ordering-pizza-advanced"></a>
@@ -93,35 +107,39 @@ Slots variable can be a simple type of an array.
 
 Additional information:
 - It is good practice to have the bot confirm what was understood. Note however, that the prompts are also rendered when filling in within a single sentence, which may not be desired for some applications.
-     - Example: "I want to order large Margarita with olives"
+     - Example: 
+     
+            User: "I want to order large Margarita with olives"
 
-         "Size of the pizza ordered is large." "Type of the pizza order is set to Margarita." "Extra topping: olives" "Thank you for ordering a large margarita pizza with olives."
+            Bot: "Size of the pizza ordered is large." 
+            
+            Bot: "Type of the pizza order is set to Margarita." 
+            
+            Bot: "Extra topping: olives" 
+            
+            Bot: "Thank you for ordering a large margarita pizza with olives."
          
 ###  Ordering pizza - confirmation <a id="ordering-pizza-confirmation"></a>
 
 __Description__
 
-[Ordering pizza - confirmation](pizza-confirm.json) is an example demonstrating a confirmation at the end of ordering a pizza. A separate slot (pizza_confirmed) is introduced as the last slot of the node. The prompt summarizes the values filled so far and requests confirmation before leaving the node. User can correct previously filled slots, confirm that all slots are correct or cancel and leave slot without performing an action.
+[Ordering pizza - confirmation](pizza-confirm.json) demonstrates a confirmation at the end of ordering a pizza. A separate slot (pizza_confirmed) is introduced as the last slot of the node. The prompt summarizes the values filled so far and requests confirmation before leaving the node. User can correct previously filled slots, confirm that all slots are correct or cancel and leave slot without performing an action.
 
 __Features demonstrated__
 
 - Block confirmation and correction authoring patterns
 - Next step confirmation: Child node makes decision on what to do with content. It gets the $pizza_confirmed flag indicating if the values are valid and if the following action should follow.
-- Confirmed/canceled: The slot values are set to null to permit entering the frame again with empty values.
+- Confirmed/canceled: The slot values are set to null to permit entering the node with slots again with empty values.
 
 Additional Information:
-- Currently, we do not have a mechanism for leaving frame prematurely (prior to filling all the slots), this will change soon.
-- If the slot is set to the value which it had before, it is not considered to be a slot change. Therefore, no match handler can be called even if the value provided in a sentence is a valid value of some slot.
-
-__Internal comment__
-
-Check exiting the frame mechanism it might change before releasing. 
+- Currently, we do not have a mechanism for leaving nodes with slots prematurely (prior to filling all the slots), this will change soon.
+- If the slot is set to the value which it had before, it is not considered to be a slot change. Therefore, no match handler can be called even if the value provided in a sentence is a valid value of some slot. 
 
 ###  Ordering pizza - handlers <a id="ordering-pizza-handlers"></a>
 
 __Description__
 
-[Ordering pizza - handlers](pizza-handler.json) is an example demonstrating how general slot handlers can be used if a user's input are not specific to a particular slot or do not provide a value for any other slots. The general slot handlers check if the slot conditions and match handlers are not triggered. If none of the general slot handlers match, the specific slot "No match" handler is checked. The handlers can be found under "Manage handler." The example is derived from pizza_confirm.json.
+[Ordering pizza - handlers](pizza-handler.json) demonstrates how general (node) slot handlers can be used if a user's input are not specific to a particular slot or do not provide a value for any other slots. The general slot handlers check if the slot conditions and match handlers are not triggered. If none of the general slot handlers match, the specific slot "No match" handler is checked. The handlers can be found under "Manage handler." The example is derived from pizza_confirm.json.
 
 __Features demonstrated__
 
@@ -141,9 +159,13 @@ __Features demonstrated__
 
 - Empty prompt: Optional slot is the slot without text in the prompt
 - No prompt to user: User is not asked for the value of the slot. If the user does not fill in the slot, there is no reminder to be populated.
-- Prompt can be filled: User can provide the value of the optional slot at any moment of processing the node. The value is then populated.
-     - Example: "I want to order a Margarita to go"
-- Node interaction completes if all compulsory slots are filled (disregarding the optional slot values).
+- Prompt can be filled: User can provide the value of the optional slot at any moment of processing the node with slots. The value is then populated.
+     - Example: 
+     
+            User: "I want to order a margherita pizza to go" / @pizza_place:go
+            
+            
+- Node with slots interaction completes if all compulsory slots are filled (disregarding the optional slot values).
 
 ### Ordering pizza - free form input <a id="ordering-pizza-free-form-input"></a>
 
@@ -157,15 +179,11 @@ __Features demonstrated__
      - Example: Setting "Check for" value in slot as !#order&&!@pizza_size&&!@pizza_type.
 
 Additional information:
-- When collecting any input, this can be input.text (or even true as input.text is always true). The problem is that input.text accepts any input, even the phrase used for entering the frame e.g. "I want to order pizza". It would match the free form slot and user would not be ever asked for an address.  We can partially avoid the problem by excluding sentences matching the other slots.
+- When collecting any input, this can be input.text (or even true as input.text is always true). The problem is that input.text accepts any input, even the phrase used for entering the node with slots e.g. "I want to order pizza". It would match the free form slot and user would not be ever asked for an address.  We can partially avoid the problem by excluding sentences matching the other slots.
 - One also has to assign a value to context variable represented by the slot (pizza_address). This is typically done automatically (as the value of entity is assigned to slot variable by default). In our case we must do it manually. It can be done by going to the three dot menu next to "Save it as" and by replacing “!#order&&!@pizza_size&&!@pizza_type”  by ”<?input.text?> ”.
 - Note, that any change in slot's "Check for" input line will override this change so you need to remember to change it back. This is just a partial solution to the problem. If one enters input for other slots which has a spelling mistake, it will not be accepted by the slot but will be happily taken by our greedy input.text slot. Then the user will not be asked for the value of address any more which is bad behavior. Depending on the input, one could condition the free form slot on an entity which would be detecting the particular type of input.
-- The more reliable way so far for collecting free form input is to use data collection without using the frames. But this will probably change soon.
+- The more reliable way so far for collecting free form input is to use data collection without using the node with slots. But this will probably change soon.
  
-__Internal comment__
-
-This will change by introduction of the slot scope (enforcing that the slot is filled only when it gets focus). 
-
 ###  Booking Travel - overlapping entities <a id="booking-travel-overlapping-entities"></a>
 
 __Description__
@@ -175,28 +193,38 @@ __Description__
 __Features demonstrated__
 
 - User provides information by prompt:
-    - Example: "Book travel ticket"
+    - Example: 
+      
+            User: "Book travel ticket"
     
-         "Where do you want to travel from?" "From Prague"
+            Bot: "Where do you want to travel from?" 
+            
+            User: "From Prague"
            
-         "Where do you want to travel to?" "London tomorrow"
+            Bot: "Where do you want to travel to?" 
+            
+            User: "London tomorrow"
            
-         "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
+            Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
            
 Additional Information:
 - It gets more tricky if slots are filled by the two entities of the same type. The system has no contextual information, so it will only use the first entity with the information provided. The first slot will be filled and the second slot will be prompted. 
-    - Example: "Book travel ticket"
+    - Example: 
     
-         "Where do you want to travel from?" "From Prague to London tomorrow"
+            User: "Book travel ticket"
+    
+            Bot: "Where do you want to travel from?" 
+               
+            User: "From Prague to London tomorrow"
            
-         "Where do you want to travel to?" "London"
+            Bot: "Where do you want to travel to?" 
+            
+            User: "London"
            
-         "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
+            Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
+            
 - Please note, if the user provides the input in the wrong order, e.g. "To London from Prague tomorrow", the value is not assigned correctly as the first entity is London and is assigned to first slot (travel_from). 
 - One could also check if more entities of the same type are present and act accordingly (ask for disambiguation, look for extra clues like "from" and "to").
 - If two entities of a different type are detected, they are processed correctly (in example above travel_date and travel_from).
 - The same problem will appear when two slots are filled by entities which have overlapping values.
 
-__Internal comment__
-
-Check this before the release please, we might get change of the behavior, e.g. use entities in order of slots. 
