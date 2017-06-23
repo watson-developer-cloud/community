@@ -486,7 +486,7 @@
 			"title": null,
 			"output": {
 				"text": {
-					"values": ["Please provide pizza size and type, e.g. Large pizza Margarita"]
+					"values": ["Please provide pizza size and type, e.g. Large pizza Margherita"]
 				}
 			},
 			"parent": "Pizza ordering",
@@ -527,7 +527,7 @@
 			"title": null,
 			"output": {
 				"text": {
-					"values": ["Sorry, I did not understand. Can you please write yes to confirm the order or no to cancel the order all together? You can also yet change the type or size. Just say e.g. '\"small Margarita"]
+					"values": ["Sorry, I did not understand. Can you please write yes to confirm the order or no to cancel the order all together? You can also yet change the type or size. Just say e.g. '\"small Margherita"]
 				}
 			},
 			"parent": "slot_1_1496007510809",
