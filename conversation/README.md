@@ -80,7 +80,7 @@ These features can be done by customizing at the slot level.
     - Example: "$pizza_type is an excellent choice, but be warned that the pepperoni is very hot" should precede "$Pizza_type is an excellent choice".
 
 - "Not found" handling: You can also respond to invalid input in section Not found 
-    - Example: If a user does not respond with an appropriate answer, you can prompt again: "You can select one of the following types: margarita, pepperoni, quatro formaggi, mexicana, vegetariana."
+    - Example: If a user does not respond with an appropriate answer, you can prompt again: "You can select one of the following types: margherita, pepperoni, quatro formaggi, mexicana, vegetariana."
 
 - Service side validation: If a response is possible but not in a combination with other responses, you can change the condition and ouput in Customize. To invalidate the slot, you need to go to the json editor and update context, e.g. "context": {"pizza_type":null}
      - Example: "We do not provide small pizza with cheese because our cheese slices are too big." 
@@ -109,15 +109,15 @@ Additional information:
 - It is good practice to have the bot confirm what was understood. Note however, that the prompts are also rendered when filling in within a single sentence, which may not be desired for some applications.
      - Example: 
      
-            User: "I want to order large Margarita with olives"
+            User: "I want to order large Margherita with olives"
 
             Bot: "Size of the pizza ordered is large." 
             
-            Bot: "Type of the pizza order is set to Margarita." 
+            Bot: "Type of the pizza order is set to Margherita." 
             
             Bot: "Extra topping: olives" 
             
-            Bot: "Thank you for ordering a large margarita pizza with olives."
+            Bot: "Thank you for ordering a large margherita pizza with olives."
          
 ###  Ordering pizza - confirmation <a id="ordering-pizza-confirmation"></a>
 
