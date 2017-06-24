@@ -9,6 +9,8 @@
 - [Ordering pizza - optional slots](#ordering-pizza-optional-slots)
 - [Ordering pizza - free form input](#ordering-pizza-free-form-input)
 - [Booking travel - overlapping entities](#booking-travel-overlapping-entities)
+- [Ordering pizza - FAQ](#ordering-pizza-FAQ)
+
 
 ###  Ordering pizza - basic <a id="ordering-pizza-basic"></a>
 
@@ -113,9 +115,7 @@ Additional Information:
 - Currently, we do not have a mechanism for leaving frame prematurely (prior to filling all the slots), this will change soon.
 - If the slot is set to the value which it had before, it is not considered to be a slot change. Therefore, no match handler can be called even if the value provided in a sentence is a valid value of some slot.
 
-__Internal comment__
 
-Check exiting the frame mechanism it might change before releasing. 
 
 ###  Ordering pizza - handlers <a id="ordering-pizza-handlers"></a>
 
@@ -162,9 +162,6 @@ Additional information:
 - Note, that any change in slot's "Check for" input line will override this change so you need to remember to change it back. This is just a partial solution to the problem. If one enters input for other slots which has a spelling mistake, it will not be accepted by the slot but will be happily taken by our greedy input.text slot. Then the user will not be asked for the value of address any more which is bad behavior. Depending on the input, one could condition the free form slot on an entity which would be detecting the particular type of input.
 - The more reliable way so far for collecting free form input is to use data collection without using the frames. But this will probably change soon.
  
-__Internal comment__
-
-This will change by introduction of the slot scope (enforcing that the slot is filled only when it gets focus). 
 
 ###  Booking Travel - overlapping entities <a id="booking-travel-overlapping-entities"></a>
 
@@ -197,6 +194,26 @@ Additional Information:
 - If two entities of a different type are detected, they are processed correctly (in example above travel_date and travel_from).
 - The same problem will appear when two slots are filled by entities which have overlapping values.
 
-__Internal comment__
 
-Check this before the release please, we might get change of the behavior, e.g. use entities in order of slots. 
+### Ordering pizza - FAQ <a id="ordering-pizza-FAQ"></a>
+
+__Description__
+
+[Ordering pizza - FAQ](Pizza_FAQ.json) is an example of using a noded with slots for advenced FAQ.
+Basic question answering (e.g. FAQ) is a simple mapping of inputs (questions) to outputs (answers).It is implemented by a sequence of nodes triggered by intents representing questions.
+
+In many cases, however, this is not sufficient. To provide  an answer, one needs to collect one or more parameters 
+e.g. 
+
+U: What is your delivery time?
+
+S: Where do you want to deliver it to? We deliver to Manhattan, Bronx and Brooklyn.
+
+U: Bronx
+
+S: Delivery time to Bronx is 30 minutes
+
+
+__Features demonstrated__
+
+using a noded with slots for advenced FAQ.
