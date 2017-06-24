@@ -9,6 +9,8 @@
 - [Ordering pizza - optional slots](#ordering-pizza-optional-slots)
 - [Ordering pizza - free form input](#ordering-pizza-free-form-input)
 - [Booking travel - overlapping entities](#booking-travel-overlapping-entities)
+- [Ordering pizza - FAQ](#ordering-pizza-FAQ)
+
 
 ###  Ordering pizza - basic <a id="ordering-pizza-basic"></a>
 
@@ -135,6 +137,8 @@ Additional Information:
 - Currently, we do not have a mechanism for leaving nodes with slots prematurely (prior to filling all the slots), this will change soon.
 - If the slot is set to the value which it had before, it is not considered to be a slot change. Therefore, no match handler can be called even if the value provided in a sentence is a valid value of some slot. 
 
+
+
 ###  Ordering pizza - handlers <a id="ordering-pizza-handlers"></a>
 
 __Description__
@@ -184,6 +188,7 @@ Additional information:
 - Note, that any change in slot's "Check for" input line will override this change so you need to remember to change it back. This is just a partial solution to the problem. If one enters input for other slots which has a spelling mistake, it will not be accepted by the slot but will be happily taken by our greedy input.text slot. Then the user will not be asked for the value of address any more which is bad behavior. Depending on the input, one could condition the free form slot on an entity which would be detecting the particular type of input.
 - The more reliable way so far for collecting free form input is to use data collection without using the node with slots. But this will probably change soon.
  
+
 ###  Booking Travel - overlapping entities <a id="booking-travel-overlapping-entities"></a>
 
 __Description__
@@ -228,3 +233,24 @@ Additional Information:
 - If two entities of a different type are detected, they are processed correctly (in example above travel_date and travel_from).
 - The same problem will appear when two slots are filled by entities which have overlapping values.
 
+
+### Ordering pizza - FAQ <a id="ordering-pizza-FAQ"></a>
+
+__Description__
+
+[Ordering pizza - FAQ](Pizza_FAQ.json) is an example of using a nodes with slots for advenced FAQ.
+Basic question answering (e.g. FAQ) is a simple mapping of inputs (questions) to outputs (answers).It is implemented by a sequence of nodes triggered by intents representing questions.
+
+In more advanced cases, however, this is not sufficient. To provide  an answer, one needs to collect one or more parameters 
+     
+            User: "What is your delivery time?"
+
+            Bot: "here do you want to deliver it to? We deliver to Manhattan, Bronx and Brooklyn." 
+            
+            User: "Bronx" 
+            
+            Bot: "Delivery time to Bronx is 30 minutes" 
+ 
+__Features demonstrated__
+
+using a noded with slots for advenced FAQ.
