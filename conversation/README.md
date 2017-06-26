@@ -23,30 +23,25 @@
 #### Features demonstrated
 
 - Users can provide all the information in one sentence as in this example:
-
-      ```
+      
       User: "I'd like to order a small pepperoni pizza"
-      ```
 
 - Users can provide the information by answering prompts, like this:
 
-      ```
       User: "I'd like to order a pizza"
       Bot: "What size?"
       User: "Small"
       Bot: "What toppings?"
       User: "Pepperoni"
-      ```
+      
 - Even if the users don't follow the prompts, the dialogue captures the information correctly. In this example, the user provides the full information, but not in the order prompted:
 
-      ```
       User: "I'd like to order a pizza"
       Bot: "What size?"
       User: "Pepperoni"
       Bot: "What toppings?"
       User: "Small"
-      ```
-
+      
 #### Additional information
 
 - If the slots values are set by entities of non-overlapping types, detecting the response is straightforward. For more information about the case when entity values overlap, see [Booking travel - overlapping entities](#booking-travel-overlapping-entities).
@@ -70,12 +65,10 @@ Implement these features by customizing at them the slot level.
 - Order of handlers: Only one of the prompts will be executed. Make sure that specific conditional prompts precede general ones. For example, `"$pizza_type is an excellent choice. But be careful, pepperoni is very hot!"` should precede `"$pizza_type is an excellent choice".`
 - Handling "Not found": You can also respond to invalid input in the `Not found` section. For example, if users do not respond with appropriate answers, you can remind them about the choices: `"You can select one of the following toppings: margherita, pepperoni, quatro formaggi, mexicana, vegetariana."`
 - Service-side validation: If a response is possible but not combined with other responses, you can change the condition and output in **Customize**. To invalidate the slot, go to the JSON editor and update the context. For example:
-
-    ```
-    "context": {"pizza_type":null}
-    "We do not provide small pizza with cheese because our cheese slices are too big."
-    ```
-
+   
+      "context": {"pizza_type":null}
+      "We do not provide small pizza with cheese because our cheese slices are too big."
+    
 ### Multiple Values
 
 #### Description
@@ -88,10 +81,9 @@ Slots variable can be a simple type of an array.
 
 - Putting an array of entities in context: To copy the whole array, add `.values`. Referring by just the name returns only the first element.
 
-    ```bash
     `$pizza_toppings=@pizza_toppings.values` returns all elements
     `$pizza_toppings=@pizza_toppings` returns just the first element of @pizza_toppings
-    ```
+    
 
 - Outputting the array: The expression language (SpEL) does not support loops to iterate over the indexes of an array. To print all the values, use operations that handle the whole array. For example, `Example: <? $pizza_toppings.join(', ') ?>`
 - Referring to the number of elements of the entity: Operations @pizza_toppings.length differs syntactically for an array in context. For example, `$pizza_toppings.size()`.
@@ -100,13 +92,11 @@ Slots variable can be a simple type of an array.
 
 - While it is good to have the bot confirm what was understood, make sure that the prompts work when the user provides all the information in one sentence:
 
-    ```
-    User: "I want to order a large Margherita with olives"
-    Bot: "Got it. A large pizza"
-    Bot: "The type of pizza you want is a Margherita."
-    Bot: "With extra olives"
-    Bot: "Thank you for ordering a large margherita pizza with olives."
-    ```
+      User: "I want to order a large Margherita with olives"
+      Bot: "Got it. A large pizza"
+      Bot: "The type of pizza you want is a Margherita."
+      Bot: "With extra olives"
+      Bot: "Thank you for ordering a large margherita pizza with olives."
 
 ### Confirmation
 
@@ -184,11 +174,8 @@ Basic question answering (e.g. FAQ) is a simple mapping of inputs (questions) to
 In more advanced cases, however, this is not sufficient. To provide  an answer, one needs to collect one or more parameters 
      
             User: "What is your delivery time?"
-
             Bot: "here do you want to deliver it to? We deliver to Manhattan, Bronx and Brooklyn." 
-            
-            User: "Bronx" 
-            
+            User: "Bronx"             
             Bot: "Delivery time to Bronx is 30 minutes" 
  
 __Features demonstrated__
