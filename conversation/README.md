@@ -238,7 +238,7 @@ Additional Information:
 
 __Description__
 
-[Ordering pizza - FAQ](Pizza_FAQ.json) is an example of using a nodes with slots for advenced FAQ.
+[Ordering pizza - FAQ](Pizza_FAQ.json) is an example of using a node with slots for advenced FAQ.
 Basic question answering (e.g. FAQ) is a simple mapping of inputs (questions) to outputs (answers).It is implemented by a sequence of nodes triggered by intents representing questions.
 
 In more advanced cases, however, this is not sufficient. To provide  an answer, one needs to collect one or more parameters 
