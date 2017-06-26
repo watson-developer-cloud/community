@@ -174,7 +174,7 @@ Basic question answering (e.g. FAQ) is a simple mapping of inputs (questions) to
 In more advanced cases, however, this is not sufficient. To provide  an answer, one needs to collect one or more parameters 
      
             User: "What is your delivery time?"
-            Bot: "here do you want to deliver it to? We deliver to Manhattan, Bronx and Brooklyn." 
+            Bot: "Where do you want to deliver it to? We deliver to Manhattan, Bronx and Brooklyn." 
             User: "Bronx"             
             Bot: "Delivery time to Bronx is 30 minutes" 
  
