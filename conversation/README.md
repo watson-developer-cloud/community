@@ -8,8 +8,9 @@
 - [Ordering pizza - handlers](#handlers)
 - [Ordering pizza - optional slots](#optional-slots)
 - [Ordering pizza - free-form input](#free-form-input)
-- [Booking travel - overlapping entities](#overlapping-entities)
 - [Ordering pizza - FAQ](#ordering-pizza-FAQ)
+- [Booking travel - overlapping entities](#overlapping-entities)
+
 
 ## Ordering pizza
 
@@ -23,13 +24,13 @@
 
 - Users can provide all the information in one sentence as in this example:
 
-      ```bash
+      ```
       User: "I'd like to order a small pepperoni pizza"
       ```
 
 - Users can provide the information by answering prompts, like this:
 
-      ```bash
+      ```
       User: "I'd like to order a pizza"
       Bot: "What size?"
       User: "Small"
@@ -38,7 +39,7 @@
       ```
 - Even if the users don't follow the prompts, the dialogue captures the information correctly. In this example, the user provides the full information, but not in the order prompted:
 
-      ```bash
+      ```
       User: "I'd like to order a pizza"
       Bot: "What size?"
       User: "Pepperoni"
@@ -167,59 +168,13 @@ Slots variable can be a simple type of an array.
 - Different slot condition: Setting slot value with a non entity. For example, setting "Check for" value in slot as `!#order&&!@pizza_size&&!@pizza_type`.
 
 Additional information:
-- When collecting any input, this can be input.text (or even true as input.text is always true). The problem is that input.text accepts any input, even the phrase used for entering the node with slots e.g. "I want to order pizza". It would match the free form slot and user would not be ever asked for an address.  We can partially avoid the problem by excluding sentences matching the other slots.
-- One also has to assign a value to context variable represented by the slot (pizza_address). This is typically done automatically (as the value of entity is assigned to slot variable by default). In our case we must do it manually. It can be done by going to the three dot menu next to "Save it as" and by replacing “!#order&&!@pizza_size&&!@pizza_type”  by ”<?input.text?> ”.
-- Note, that any change in slot's "Check for" input line will override this change so you need to remember to change it back. This is just a partial solution to the problem. If one enters input for other slots which has a spelling mistake, it will not be accepted by the slot but will be happily taken by our greedy input.text slot. Then the user will not be asked for the value of address any more which is bad behavior. Depending on the input, one could condition the free form slot on an entity which would be detecting the particular type of input.
-- The more reliable way so far for collecting free form input is to use data collection without using the node with slots. But this will probably change soon.
- 
-
-###  Booking Travel - overlapping entities <a id="booking-travel-overlapping-entities"></a>
 
 - When collecting any input, this can be input.text (or even true as input.text is always true). The problem is that input.text accepts any input, even the phrase that is used for entering the node with slots e.g. "I want to order pizza". It would match the free-form slot and user would not be ever asked for an address.  We can partially avoid the problem by excluding sentences that match the other slots.
 - Assign a value to the context variable represented by the slot (pizza_address). Assignment is typically done automatically (as the value of entity is assigned to slot variable by default). In this case, you must assign it manually by going to the three dot menu next to **Save it as** and by replacing `"!#order&&!@pizza_size&&!@pizza_type` with `<?input.text?>`.
 - Any change in a slot's "Check for" input line will override this change, so remember to change it back. This is just a partial solution to the problem. If you enter input for other slots with a spelling mistake, it is not accepted by the slot but is happily taken by our greedy input.text slot. The user will then not be asked for the value of address any more, which is bad behavior. Depending on the input, you might set a condition on the free-form slot on an entity to detect the type of input.
 - The more reliable way so far for collecting free-form input is to use data collection without using the node with slots. But this will probably change soon.
 
-## Booking Travel
-
-### Overlapping entities
-
-#### Description
-
-[Booking Travel - overlapping entities](travel-overlap.json) is an example of a user booking travel to city `X` from city `Y`. The example demonstrates processing multiple slots associated with the overlapping entities. The user should provide origin, destination, and date of a travel. The form contains two slots that are associated with the same entity @sys_location (travel_from and travel_to) and one slot that is filled by unique entity @sys_date (travel_date). The last one is the confirmation slot travel_confirm that uses the concept of confirmation described in `pizza_confirm.json`.
-
-#### Features demonstrated
-
-- User provides information after the prompts:
-
-      ```
-      User: "Book travel ticket"
-      Bot: "Where do you want to travel from?"
-      User: "From Prague"
-      Bot: "Where do you want to travel to?"
-      User: "London tomorrow"
-      Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
-      ```
-
-#### Additional information
-
-- It gets more tricky if slots are filled by the two entities of the same type. The system has no contextual information, so it will use only the first entity with the information provided. The first slot will be filled and the second slot will be prompted. For example:
-
-    ```
-    User: "Book travel ticket"
-    Bot: "Where do you want to travel from?"
-    User: "From Prague to London tomorrow"
-    Bot: "Where do you want to travel to?"
-    User: "London"
-    Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
-```
-
-- If the user provides the input in the wrong order (for example, "To London from Prague tomorrow"), the value is not assigned correctly. The first entity is London and it is assigned to the first slot (travel_from).
-- You might also check whether more entities of the same type are present and take action. For example, you could ask for disambiguation or look for extra clues like "from" and "to".
-- If two entities of different types are detected, they are processed correctly (in the previous example travel_date and travel_from).
-- The same problem exists when two slots are filled by entities that have overlapping values.
-
-### Ordering pizza - FAQ <a id="ordering-pizza-FAQ"></a>
+### FAQ <a id="ordering-pizza-FAQ"></a>
 
 __Description__
 
@@ -238,4 +193,39 @@ In more advanced cases, however, this is not sufficient. To provide  an answer, 
  
 __Features demonstrated__
 
-using a noded with slots for advenced FAQ.
+- Using a node with slots for advenced FAQ.
+
+## Booking Travel
+
+### Overlapping entities <a id="booking-travel-overlapping-entities"></a>
+
+#### Description
+
+[Booking Travel - overlapping entities](travel-overlap.json) is an example of a user booking travel to city `X` from city `Y`. The example demonstrates processing multiple slots associated with the overlapping entities. The user should provide origin, destination, and date of a travel. The form contains two slots that are associated with the same entity @sys_location (travel_from and travel_to) and one slot that is filled by unique entity @sys_date (travel_date). The last one is the confirmation slot travel_confirm that uses the concept of confirmation described in `pizza_confirm.json`.
+
+#### Features demonstrated
+
+- User provides information after the prompts:
+
+      User: "Book travel ticket"
+      Bot: "Where do you want to travel from?"
+      User: "From Prague"
+      Bot: "Where do you want to travel to?"
+      User: "London tomorrow"
+      Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
+
+#### Additional information
+
+- It gets more tricky if slots are filled by the two entities of the same type. The system has no contextual information, so it will use only the first entity with the information provided. The first slot will be filled and the second slot will be prompted. For example:
+
+      User: "Book travel ticket"
+      Bot: "Where do you want to travel from?"
+      User: "From Prague to London tomorrow"
+      Bot: "Where do you want to travel to?"
+      User: "London"
+      Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
+
+- If the user provides the input in the wrong order (for example, "To London from Prague tomorrow"), the value is not assigned correctly. The first entity is London and it is assigned to the first slot (travel_from).
+- You might also check whether more entities of the same type are present and take action. For example, you could ask for disambiguation or look for extra clues like "from" and "to".
+- If two entities of different types are detected, they are processed correctly (in the previous example travel_date and travel_from).
+- The same problem exists when two slots are filled by entities that have overlapping values.
