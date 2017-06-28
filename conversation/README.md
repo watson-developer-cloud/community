@@ -39,7 +39,7 @@
       User: "I'd like to order a pizza"
       Bot: "What size?"
       User: "Pepperoni"
-      Bot: "What toppings?"
+      Bot: "What size?"
       User: "Small"
       
 #### Additional information
