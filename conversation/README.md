@@ -8,8 +8,9 @@
 - [Ordering pizza - handlers](#handlers)
 - [Ordering pizza - optional slots](#optional-slots)
 - [Ordering pizza - free-form input](#free-form-input)
-- [Booking travel - overlapping entities](#overlapping-entities)
 - [Ordering pizza - FAQ](#ordering-pizza-FAQ)
+- [Booking travel - overlapping entities](#overlapping-entities)
+
 
 ## Ordering pizza
 
@@ -22,10 +23,9 @@
 #### Features demonstrated
 
 - Users can provide all the information in one sentence as in this example:
-
+      
       ```
       User: "I'd like to order a small pepperoni pizza"
-      ```
 
 - Users can provide the information by answering prompts, like this:
 
@@ -35,17 +35,16 @@
       User: "Small"
       Bot: "What toppings?"
       User: "Pepperoni"
-      ```
+      
 - Even if the users don't follow the prompts, the dialogue captures the information correctly. In this example, the user provides the full information, but not in the order prompted:
 
       ```
       User: "I'd like to order a pizza"
       Bot: "What size?"
       User: "Pepperoni"
-      Bot: "What toppings?"
+      Bot: "What size?"
       User: "Small"
-      ```
-
+      
 #### Additional information
 
 - If the slots values are set by entities of non-overlapping types, detecting the response is straightforward. For more information about the case when entity values overlap, see [Booking travel - overlapping entities](#booking-travel-overlapping-entities).
@@ -69,12 +68,10 @@ Implement these features by customizing at them the slot level.
 - Order of handlers: Only one of the prompts will be executed. Make sure that specific conditional prompts precede general ones. For example, `"$pizza_type is an excellent choice. But be careful, pepperoni is very hot!"` should precede `"$pizza_type is an excellent choice".`
 - Handling "Not found": You can also respond to invalid input in the `Not found` section. For example, if users do not respond with appropriate answers, you can remind them about the choices: `"You can select one of the following toppings: margherita, pepperoni, quatro formaggi, mexicana, vegetariana."`
 - Service-side validation: If a response is possible but not combined with other responses, you can change the condition and output in **Customize**. To invalidate the slot, go to the JSON editor and update the context. For example:
-
-    ```
-    "context": {"pizza_type":null}
-    "We do not provide small pizza with cheese because our cheese slices are too big."
-    ```
-
+   
+      "context": {"pizza_type":null}
+      "We do not provide small pizza with cheese because our cheese slices are too big."
+    
 ### Multiple Values
 
 #### Description
@@ -90,7 +87,7 @@ Slots variable can be a simple type of an array.
     ```
     `$pizza_toppings=@pizza_toppings.values` returns all elements
     `$pizza_toppings=@pizza_toppings` returns just the first element of @pizza_toppings
-    ```
+    
 
 - Outputting the array: The expression language (SpEL) does not support loops to iterate over the indexes of an array. To print all the values, use operations that handle the whole array. For example, `Example: <? $pizza_toppings.join(', ') ?>`
 - Referring to the number of elements of the entity: Operations @pizza_toppings.length differs syntactically for an array in context. For example, `$pizza_toppings.size()`.
@@ -99,13 +96,11 @@ Slots variable can be a simple type of an array.
 
 - While it is good to have the bot confirm what was understood, make sure that the prompts work when the user provides all the information in one sentence:
 
-    ```
-    User: "I want to order a large Margherita with olives"
-    Bot: "Got it. A large pizza"
-    Bot: "The type of pizza you want is a Margherita."
-    Bot: "With extra olives"
-    Bot: "Thank you for ordering a large margherita pizza with olives."
-    ```
+      User: "I want to order a large Margherita with olives"
+      Bot: "Got it. A large pizza"
+      Bot: "The type of pizza you want is a Margherita."
+      Bot: "With extra olives"
+      Bot: "Thank you for ordering a large margherita pizza with olives."
 
 ### Confirmation
 
@@ -167,22 +162,33 @@ Slots variable can be a simple type of an array.
 - Different slot condition: Setting slot value with a non entity. For example, setting "Check for" value in slot as `!#order&&!@pizza_size&&!@pizza_type`.
 
 Additional information:
-- When collecting any input, this can be input.text (or even true as input.text is always true). The problem is that input.text accepts any input, even the phrase used for entering the node with slots e.g. "I want to order pizza". It would match the free form slot and user would not be ever asked for an address.  We can partially avoid the problem by excluding sentences matching the other slots.
-- One also has to assign a value to context variable represented by the slot (pizza_address). This is typically done automatically (as the value of entity is assigned to slot variable by default). In our case we must do it manually. It can be done by going to the three dot menu next to "Save it as" and by replacing “!#order&&!@pizza_size&&!@pizza_type”  by ”<?input.text?> ”.
-- Note, that any change in slot's "Check for" input line will override this change so you need to remember to change it back. This is just a partial solution to the problem. If one enters input for other slots which has a spelling mistake, it will not be accepted by the slot but will be happily taken by our greedy input.text slot. Then the user will not be asked for the value of address any more which is bad behavior. Depending on the input, one could condition the free form slot on an entity which would be detecting the particular type of input.
-- The more reliable way so far for collecting free form input is to use data collection without using the node with slots. But this will probably change soon.
- 
-
-###  Booking Travel - overlapping entities <a id="booking-travel-overlapping-entities"></a>
 
 - When collecting any input, this can be input.text (or even true as input.text is always true). The problem is that input.text accepts any input, even the phrase that is used for entering the node with slots e.g. "I want to order pizza". It would match the free-form slot and user would not be ever asked for an address.  We can partially avoid the problem by excluding sentences that match the other slots.
 - Assign a value to the context variable represented by the slot (pizza_address). Assignment is typically done automatically (as the value of entity is assigned to slot variable by default). In this case, you must assign it manually by going to the three dot menu next to **Save it as** and by replacing `"!#order&&!@pizza_size&&!@pizza_type` with `<?input.text?>`.
 - Any change in a slot's "Check for" input line will override this change, so remember to change it back. This is just a partial solution to the problem. If you enter input for other slots with a spelling mistake, it is not accepted by the slot but is happily taken by our greedy input.text slot. The user will then not be asked for the value of address any more, which is bad behavior. Depending on the input, you might set a condition on the free-form slot on an entity to detect the type of input.
 - The more reliable way so far for collecting free-form input is to use data collection without using the node with slots. But this will probably change soon.
 
+### FAQ <a id="ordering-pizza-FAQ"></a>
+
+__Description__
+
+[Ordering pizza - FAQ](Pizza_FAQ.json) is an example of using a node with slots for advenced FAQ.
+Basic question answering (e.g. FAQ) is a simple mapping of inputs (questions) to outputs (answers).It is implemented by a sequence of nodes triggered by intents representing questions.
+
+In more advanced cases, however, this is not sufficient. To provide  an answer, one needs to collect one or more parameters 
+     
+            User: "What is your delivery time?"
+            Bot: "Where do you want to deliver it to? We deliver to Manhattan, Bronx and Brooklyn." 
+            User: "Bronx"             
+            Bot: "Delivery time to Bronx is 30 minutes" 
+ 
+__Features demonstrated__
+
+- Using a node with slots for advenced FAQ.
+
 ## Booking Travel
 
-### Overlapping entities
+### Overlapping entities <a id="booking-travel-overlapping-entities"></a>
 
 #### Description
 
