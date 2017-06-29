@@ -24,10 +24,12 @@
 
 - Users can provide all the information in one sentence as in this example:
       
+      ```
       User: "I'd like to order a small pepperoni pizza"
 
 - Users can provide the information by answering prompts, like this:
 
+      ```
       User: "I'd like to order a pizza"
       Bot: "What size?"
       User: "Small"
@@ -36,6 +38,7 @@
       
 - Even if the users don't follow the prompts, the dialogue captures the information correctly. In this example, the user provides the full information, but not in the order prompted:
 
+      ```
       User: "I'd like to order a pizza"
       Bot: "What size?"
       User: "Pepperoni"
@@ -81,6 +84,7 @@ Slots variable can be a simple type of an array.
 
 - Putting an array of entities in context: To copy the whole array, add `.values`. Referring by just the name returns only the first element.
 
+    ```
     `$pizza_toppings=@pizza_toppings.values` returns all elements
     `$pizza_toppings=@pizza_toppings` returns just the first element of @pizza_toppings
     
@@ -194,25 +198,61 @@ __Features demonstrated__
 
 - User provides information after the prompts:
 
-      User: "Book travel ticket"
-      Bot: "Where do you want to travel from?"
-      User: "From Prague"
-      Bot: "Where do you want to travel to?"
-      User: "London tomorrow"
-      Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
+		User: "Book travel ticket"
+		Bot: "Where do you want to travel from?"
+		User: "From Prague"
+		Bot: "Where do you want to travel to?"
+		User: "London tomorrow"
+		Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
 
 #### Additional information
 
 - It gets more tricky if slots are filled by the two entities of the same type. The system has no contextual information, so it will use only the first entity with the information provided. The first slot will be filled and the second slot will be prompted. For example:
 
-      User: "Book travel ticket"
-      Bot: "Where do you want to travel from?"
-      User: "From Prague to London tomorrow"
-      Bot: "Where do you want to travel to?"
-      User: "London"
-      Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
+		User: "Book travel ticket"
+		Bot: "Where do you want to travel from?"
+		User: "From Prague to London tomorrow"
+		Bot: "Where do you want to travel to?"
+		User: "London"
+		Bot: "I understand that you want to travel from Prague to London on 2017-06-07. Is that correct?"
 
 - If the user provides the input in the wrong order (for example, "To London from Prague tomorrow"), the value is not assigned correctly. The first entity is London and it is assigned to the first slot (travel_from).
 - You might also check whether more entities of the same type are present and take action. For example, you could ask for disambiguation or look for extra clues like "from" and "to".
 - If two entities of different types are detected, they are processed correctly (in the previous example travel_date and travel_from).
 - The same problem exists when two slots are filled by entities that have overlapping values.
+
+### Ordering pizza - FAQ <a id="ordering-pizza-FAQ"></a>
+
+#### Description
+
+[Ordering pizza - FAQ](Pizza_FAQ.json) is an example of using a node with slots for advenced FAQ.
+Basic question answering (e.g. FAQ) is a simple mapping of inputs (questions) to outputs (answers).It is implemented by a sequence of nodes triggered by intents representing questions.
+
+In more advanced cases, however, this is not sufficient. To provide  an answer, one needs to collect one or more parameters 
+   
+	User: "What is your delivery time?"
+	Bot: "Were do you want to deliver it to? We deliver to Manhattan, Bronx and Brooklyn." 
+	User: "Bronx"
+	Bot: "Delivery time to Bronx is 30 minutes" 
+
+#### Features demonstrated
+
+using a noded with slots for advenced FAQ.
+
+### Ordering pizza - overlapping entities <a id="ordering-pizza-entity"></a>
+
+#### Description
+
+[ordering-pizza-entity](pizza_entity.json) is an example demonstrating how the overlapping entities are processed during slot value resolution. The example is derived from pizza_basic.json, two extra slots are added. The first one is collecting a numerical value representing number of pizzas, the second is collecting the date when the pizza shold be delivered. When entering the phrase:
+   
+	User: "I want to order two large pizza margherita for August 5"
+
+recognized entities are 
+
+	@sys-number:2
+	@pizza_size:large
+	@pizza_type:margherita
+	@sys-date:2017-08-05
+	@sys-number:5
+
+Mind that there are two @sys-number values. The first one is number of pizzas and the secon one is part of the date recognized as a number. The second @sys-number is  overlapped with detected date @sys-date. The slot execution algorithm takes into account the fact of overlapping entities and disregards the smaller one (in this case @sys-number:5). Therefore, the assignment of the values is correct though there wold be a disambiguation problem without this feature.
