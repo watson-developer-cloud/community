@@ -264,4 +264,4 @@ Mind that there are two @sys-number values. The first one is number of pizzas an
 ## IBM Cloud Functions integration
 {: #actions}
 
-You can import the **cloud-functions-echo.json** file to your Conversation instance as a new workspace. The workspace contains a dialog with nodes that call Cloud Functions actions. See [Making programmatic calls from a dialog node](https://console.bluemix.net/docs/services/conversation/dialog-actions.html) for more information.
+You can import the **cloud-functions-echo.json** file to your Conversation instance as a new workspace. The workspace contains a dialog with a node that calls the Cloud Functions echo action. You can use the "Try it out" pane in the tooling to see how it works. See [Making programmatic calls from a dialog node](https://console.bluemix.net/docs/services/conversation/dialog-actions.html) for more information.
