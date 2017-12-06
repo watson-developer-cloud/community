@@ -127,7 +127,7 @@ Slots variable can be a simple type of an array.
 
 #### Description
 
-[Ordering pizza - handlers](pizza-handler.json) demonstrates how general (node) slot handlers can be used if a user's input are not specific to a particular slot or do not provide a value for any other slots. The general slot handlers check if the slot conditions and match handlers are not triggered. If none of the general slot handlers match, the specific slot "No match" handler is checked. The handlers can be found under "Manage handler." The example is derived from `pizza_confirm.json`.
+[Ordering pizza - handlers](pizza-handlers.json) demonstrates how general (node) slot handlers can be used if a user's input are not specific to a particular slot or do not provide a value for any other slots. The general slot handlers check if the slot conditions and match handlers are not triggered. If none of the general slot handlers match, the specific slot "No match" handler is checked. The handlers can be found under "Manage handler." The example is derived from `pizza_confirm.json`.
 
 #### Features demonstrated
 
