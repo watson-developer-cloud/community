@@ -1,5 +1,6 @@
 # Features
-## Slots: gathering input from users
+
+**Slots: gathering input from users**
 
 - [Ordering pizza - basic](#basic-example)
 - [Ordering pizza - advanced](#advanced-example)
@@ -11,6 +12,9 @@
 - [Ordering pizza - FAQ](#ordering-pizza-FAQ)
 - [Booking travel - overlapping entities](#overlapping-entities)
 
+**IBM Cloud Functions integration**
+
+- [BM Cloud Functions integration](#actions)
 
 ## Ordering pizza
 
@@ -256,3 +260,8 @@ recognized entities are
 	@sys-number:5
 
 Mind that there are two @sys-number values. The first one is number of pizzas and the secon one is part of the date recognized as a number. The second @sys-number is  overlapped with detected date @sys-date. The slot execution algorithm takes into account the fact of overlapping entities and disregards the smaller one (in this case @sys-number:5). Therefore, the assignment of the values is correct though there wold be a disambiguation problem without this feature.
+
+## IBM Cloud Functions integration
+{: #actions}
+
+You can import the **cloud-functions-echo.json** file to your Conversation instance as a new workspace. The workspace contains a dialog with a node that calls the Cloud Functions echo action. You can use the "Try it out" pane in the tooling to see how it works. See [Making programmatic calls from a dialog node](https://console.bluemix.net/docs/services/conversation/dialog-actions.html) for more information.
