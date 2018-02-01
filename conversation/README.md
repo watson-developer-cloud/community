@@ -16,6 +16,9 @@
 
 - [BM Cloud Functions integration](#actions)
 
+**Multi-features**
+- [Two intents, handlers, pattern entities, counter](#adv-dialog1)
+
 ## Ordering pizza
 
 ### Basic example <a id="ordering-pizza-basic"></a>
@@ -265,3 +268,12 @@ Mind that there are two @sys-number values. The first one is number of pizzas an
 {: #actions}
 
 You can import the **cloud-functions-echo.json** file to your Conversation instance as a new workspace. The workspace contains a dialog with a node that calls the Cloud Functions echo action. You can use the "Try it out" pane in the tooling to see how it works. See [Making programmatic calls from a dialog node](https://console.bluemix.net/docs/services/conversation/dialog-actions.html) for more information.
+
+## Multi-features <a id="adv-dialog1"></a>
+### Two intents, handlers, pattern entities, counter
+
+#### Description
+[Advanced dialog](adv-dialog1.json) is an electronics store tutorial that uses a combination of advanced dialog features. A user can make an order or return an item. 
+
+#### Features demonstrated
+Features highlighted are how to disambiguate if a user inputs multiple intents, how to use handlers to exit a slot, how to utilize pattern entities in dialog, and how to add a counter to know when your bot should escalate to an agent or end a conversation. Watch this [video](https://youtu.be/Z_vmzC0tu60) for more detailed information.
