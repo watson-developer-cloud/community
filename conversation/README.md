@@ -10,7 +10,7 @@
 - [Ordering pizza - optional slots](#ordering-pizza-optional-slots)
 - [Ordering pizza - free-form input](#free-form-input)
 - [Ordering pizza - FAQ](#ordering-pizza-FAQ)
-- [Booking travel - overlapping entities](#ordering-pizza-entity")
+- [Booking travel - overlapping entities](#ordering-pizza-entity)
 
 **IBM Cloud Functions integration**
 
@@ -266,7 +266,7 @@ Mind that there are two @sys-number values. The first one is number of pizzas an
 
 ## IBM Cloud Functions integration <a id="actions"></a>
 
-You can import the [cloud-functions-echo](cloud-functions-echo.json) ** file to your Conversation instance as a new workspace. The workspace contains a dialog with a node that calls the Cloud Functions echo action. You can use the "Try it out" pane in the tooling to see how it works. See [Making programmatic calls from a dialog node](https://console.bluemix.net/docs/services/conversation/dialog-actions.html) for more information.
+You can import the [cloud-functions-echo](cloud-functions-echo.json) file to your Conversation instance as a new workspace. The workspace contains a dialog with a node that calls the Cloud Functions echo action. You can use the "Try it out" pane in the tooling to see how it works. See [Making programmatic calls from a dialog node](https://console.bluemix.net/docs/services/conversation/dialog-actions.html) for more information.
 
 ## Multi-features <a id="adv-dialog1"></a>
 ### Two intents, handlers, pattern entities, counter
