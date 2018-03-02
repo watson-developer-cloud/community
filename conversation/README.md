@@ -19,6 +19,9 @@
 **Multi-features**
 - [Two intents, handlers, pattern entities, counter](#adv-dialog1)
 
+**Generating utterances and conversation logs through a script**
+- [Use a script to generate test utterances and simulate a user](generate-chat-logs)
+
 ## Ordering pizza
 
 ### Basic example <a id="ordering-pizza-basic"></a>
@@ -276,3 +279,7 @@ You can import the [cloud-functions-echo](cloud-functions-echo.json) file to you
 
 #### Features demonstrated
 Features highlighted are how to disambiguate if a user inputs multiple intents, how to use handlers to exit a slot, how to utilize pattern entities in dialog, and how to add a counter to know when your bot should escalate to an agent or end a conversation. Watch this [video](https://youtu.be/Z_vmzC0tu60) for more detailed information.
+
+
+## Sending utterances and generating conversation logs through a script <a id=generate-chat-logs></a>
+Sometimes you need a quick way to simulate a user and call the /message API with a sequence of input messages. For example, you may want to test your workspace and generate data for the Improve section of the Conversation UI. Download the [generate-chat-logs](generate-chat-logs.py3) python file along with the sample [utterances](utterances.csv) CSV. When you run the script, pass your own credentials and connection information as parameters as described in the comments at the top of [generate-chat-logs](generate-chat-logs.py3).
