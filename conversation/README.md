@@ -284,6 +284,4 @@ Features highlighted are how to disambiguate if a user inputs multiple intents, 
 ## Sending utterances and generating conversation logs through a script <a id=generate-chat-logs></a>
 Sometimes you need a quick way to simulate a user and call the /message API with a sequence of input messages. For example, you may want to test your workspace and generate data for the Improve section of the Conversation UI. Download the [generate_chat_logs](generate_chat_logs.py3) python file along with the sample [utterances](utterances.csv) CSV. When you run the script, pass your own credentials and connection information as parameters as described in the comments at the top of [generate_chat_logs](generate_chat_logs.py3).  For example:
 
-    ```
     ./generate_chat_logs.py3 <URL to Conversation API> <username:password> <workspace ID> utterances-for-generate-chat-logs.csv -d <deployment ID> -u <userid>
-    ```     
