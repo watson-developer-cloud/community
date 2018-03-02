@@ -20,7 +20,7 @@
 - [Two intents, handlers, pattern entities, counter](#adv-dialog1)
 
 **Generating utterances and conversation logs through a script**
-- [Use a script to generate test utterances and simulate a user](generate-chat-logs)
+- [Use a script to generate test utterances and simulate a user](#generate-chat-logs)
 
 ## Ordering pizza
 
