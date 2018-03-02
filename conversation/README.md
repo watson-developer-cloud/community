@@ -2,19 +2,19 @@
 
 **Slots: gathering input from users**
 
-- [Ordering pizza - basic](#basic-example)
-- [Ordering pizza - advanced](#advanced-example)
+- [Ordering pizza - basic](#ordering-pizza-basic)
+- [Ordering pizza - advanced](#ordering-pizza-advanced)
 - [Ordering pizza - multiple values](#multiple-values)
 - [Ordering pizza - confirmation](#confirmation)
 - [Ordering pizza - handlers](#handlers)
-- [Ordering pizza - optional slots](#optional-slots)
+- [Ordering pizza - optional slots](#ordering-pizza-optional-slots)
 - [Ordering pizza - free-form input](#free-form-input)
 - [Ordering pizza - FAQ](#ordering-pizza-FAQ)
-- [Booking travel - overlapping entities](#overlapping-entities)
+- [Booking travel - overlapping entities](#ordering-pizza-entity")
 
 **IBM Cloud Functions integration**
 
-- [BM Cloud Functions integration](#actions)
+- [IBM Cloud Functions integration](#actions)
 
 **Multi-features**
 - [Two intents, handlers, pattern entities, counter](#adv-dialog1)
@@ -60,7 +60,7 @@
 
 The node on the right of the node with slots is executed after completing the slots.
 
-### Advanced example
+### Advanced example <a id="ordering-pizza-advanced"></a>
 
 #### Description
 
@@ -126,7 +126,7 @@ Slots variable can be a simple type of an array.
 - We don't have a mechanism for leaving nodes with slots prematurely (before filling all the slots), but might soon.
 - If the slot is set to the value that it had before, it is not considered a slot change. Therefore, no match handler can be called even if the value provided in a sentence is a valid value of some slot.
 
-### Handlers
+### Handlers 
 
 #### Description
 
@@ -244,7 +244,7 @@ In more advanced cases, however, this is not sufficient. To provide  an answer, 
 
 #### Features demonstrated
 
-using a noded with slots for advenced FAQ.
+using a node with slots for advanced FAQ.
 
 ### Ordering pizza - overlapping entities <a id="ordering-pizza-entity"></a>
 
@@ -264,10 +264,9 @@ recognized entities are
 
 Mind that there are two @sys-number values. The first one is number of pizzas and the secon one is part of the date recognized as a number. The second @sys-number is  overlapped with detected date @sys-date. The slot execution algorithm takes into account the fact of overlapping entities and disregards the smaller one (in this case @sys-number:5). Therefore, the assignment of the values is correct though there wold be a disambiguation problem without this feature.
 
-## IBM Cloud Functions integration
-{: #actions}
+## IBM Cloud Functions integration <a id="actions"></a>
 
-You can import the **cloud-functions-echo.json** file to your Conversation instance as a new workspace. The workspace contains a dialog with a node that calls the Cloud Functions echo action. You can use the "Try it out" pane in the tooling to see how it works. See [Making programmatic calls from a dialog node](https://console.bluemix.net/docs/services/conversation/dialog-actions.html) for more information.
+You can import the [cloud-functions-echo](cloud-functions-echo.json) ** file to your Conversation instance as a new workspace. The workspace contains a dialog with a node that calls the Cloud Functions echo action. You can use the "Try it out" pane in the tooling to see how it works. See [Making programmatic calls from a dialog node](https://console.bluemix.net/docs/services/conversation/dialog-actions.html) for more information.
 
 ## Multi-features <a id="adv-dialog1"></a>
 ### Two intents, handlers, pattern entities, counter
