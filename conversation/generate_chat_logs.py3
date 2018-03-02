@@ -16,7 +16,10 @@
 # :init:
 # hit the brake
 #
+#
+# If you don't have python3 requests installed, be sure to run pip3 install requests
 
+#!/usr/local/bin/python3
 import sys
 import json
 import time
@@ -40,6 +43,7 @@ parser.add_argument("workspace_id")
 parser.add_argument("question_csv_file")
 parser.add_argument("-c", "--customer_id")
 parser.add_argument("-d", "--deployment_id")
+parser.add_argument("-u", "--user_id")
 args = parser.parse_args()
 
 endpoint = args.endpoint
@@ -51,7 +55,19 @@ gcontext = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
 
 if True:
     csv_reader = csv.DictReader(open(args.question_csv_file),escapechar="\\")
-    context = { "metadata": { "deployment": args.deployment_id }} if args.deployment_id is not None else None
+    deployTag = {"deployment": args.deployment_id} if args.deployment_id is not None else None
+    userID = {"user_id": args.user_id} if args.user_id is not None else None
+    metadataValue = None
+    if deployTag is not None:
+        if userID is not None:
+            metadataValue = deployTag.copy()
+            metadataValue.update(userID)
+        else:
+            metadataValue = deployTag
+    else:
+        if userID is not None:
+            metadataValue = userID
+    context = {"metadata": metadataValue} if metadataValue is not None else None
     prevContext = None
     turnCount = 0
 
@@ -60,7 +76,7 @@ if True:
         if turn["question"][0] == ";":
             continue
         if turn["question"] == ":init:":
-            context = { "metadata": { "deployment": args.deployment_id }} if args.deployment_id is not None else None
+            context = {"metadata": metadataValue} if metadataValue is not None else None
             turnCount = 0
             continue
 
@@ -87,10 +103,11 @@ if True:
 
         response_data = response.read()
         response.close()
+        #handy for debugging
+        #print("response_data: %s" %(response_data))
         response_json = json.loads(response_data)
         prevContext = context
         context = response_json["context"]
-                 
         output = " ".join(map(lambda x: str(x), response_json["output"]["text"]))
 
         #if prevContext is None:
