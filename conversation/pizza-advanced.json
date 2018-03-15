@@ -25,7 +25,7 @@
 			"created": "2017-05-11T07:58:51.682Z",
 			"updated": "2017-05-11T07:58:51.682Z",
 			"examples": [{
-					"text": "Can I get a pizza margarita, small please",
+					"text": "Can I get a pizza margherita, small please",
 					"created": "2017-05-11T07:58:51.682Z",
 					"updated": "2017-05-11T07:58:51.682Z"
 				}, {
@@ -75,7 +75,7 @@
 		}, {
 			"entity": "pizza_type",
 			"values": [{
-					"value": "margarita",
+					"value": "margherita",
 					"created": "2017-05-11T07:58:51.682Z",
 					"updated": "2017-05-11T07:58:51.682Z",
 					"metadata": null,
@@ -93,7 +93,7 @@
 					"metadata": null,
 					"synonyms": []
 				}, {
-					"value": "vegetarin",
+					"value": "vegetarian",
 					"created": "2017-05-11T07:58:51.682Z",
 					"updated": "2017-05-11T07:58:51.682Z",
 					"metadata": null,
@@ -335,7 +335,7 @@
 			"go_to": null,
 			"output": {
 				"text": {
-					"values": ["Please select one of the valid pizza types (margarita, pepperoni, quatro formaggi, mexicana, vegetariana)"]
+					"values": ["Please select one of the valid pizza types (margherita, pepperoni, quatro formaggi, mexicana, vegetariana)"]
 				}
 			},
 			"parent": "slot_6_1494421302730",
@@ -393,7 +393,7 @@
 			"go_to": null,
 			"output": {
 				"text": {
-					"values": ["You can select one of the following types: margarita, pepperoni, quatro formaggi, mexicana, vegetariana."]
+					"values": ["You can select one of the following types: margherita, pepperoni, quatro formaggi, mexicana, vegetariana."]
 				}
 			},
 			"parent": "slot_6_1494421302730",

@@ -6,7 +6,7 @@
 			"created": "2017-05-16T21:49:14.821Z",
 			"updated": "2017-05-16T21:49:14.821Z",
 			"examples": [{
-					"text": "Can I get a pizza margarita, small please",
+					"text": "Can I get a pizza margherita, small please",
 					"created": "2017-05-16T21:49:14.821Z",
 					"updated": "2017-05-16T21:49:14.821Z"
 				}, {
@@ -86,7 +86,7 @@
 					"metadata": null,
 					"synonyms": ["olives"]
 				}, {
-					"value": "salamy",
+					"value": "salami",
 					"created": "2017-05-16T21:49:14.821Z",
 					"updated": "2017-05-16T21:49:14.821Z",
 					"metadata": null,
@@ -100,7 +100,7 @@
 		}, {
 			"entity": "pizza_type",
 			"values": [{
-					"value": "margarita",
+					"value": "margherita",
 					"created": "2017-05-16T21:49:14.821Z",
 					"updated": "2017-05-16T21:49:14.821Z",
 					"metadata": null,
@@ -118,7 +118,7 @@
 					"metadata": null,
 					"synonyms": []
 				}, {
-					"value": "vegetarin",
+					"value": "vegetarian",
 					"created": "2017-05-16T21:49:14.821Z",
 					"updated": "2017-05-16T21:49:14.821Z",
 					"metadata": null,
