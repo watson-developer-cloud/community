@@ -1,9 +1,5 @@
 # Features
 
-**Digressions**
-
-- [Digression showcase](#digressions)
-
 **Slots: gathering input from users**
 
 - [Ordering pizza - basic](#ordering-pizza-basic)
@@ -19,6 +15,10 @@
 **IBM Cloud Functions integration**
 
 - [IBM Cloud Functions integration](#actions)
+
+**Digressions**
+
+- [Digression showcase](#digressions)
 
 **Multi-features**
 - [Two intents, handlers, pattern entities, counter](#adv-dialog1)
