@@ -16,6 +16,10 @@
 
 - [IBM Cloud Functions integration](#actions)
 
+**Digressions**
+
+- [Digression showcase](#digressions)
+
 **Multi-features**
 - [Two intents, handlers, pattern entities, counter](#adv-dialog1)
 
@@ -270,6 +274,10 @@ Mind that there are two @sys-number values. The first one is number of pizzas an
 ## IBM Cloud Functions integration <a id="actions"></a>
 
 You can import the [cloud-functions-echo](cloud-functions-echo.json) file to your Watson Assistant (Conversation) instance as a new workspace. The workspace contains a dialog with a node that calls the Cloud Functions echo action. You can use the "Try it out" pane in the tooling to see how it works. See [Making programmatic calls from a dialog node](https://console.bluemix.net/docs/services/conversation/dialog-actions.html) for more information.
+
+## Digressions <a id="digressions"></a>
+
+Import the [digression-showcase.json](digression-showcase.json) file to your Watson Assistant instance as a new workspace. The dialog is already populated with some nodes with different digression settings. Follow the steps in the [product documentation tutorial](https://console.bluemix.net/docs/services/conversation/tutorial-digressions.html) to test out some scenarios that show how digressions work.
 
 ## Multi-features <a id="adv-dialog1"></a>
 ### Two intents, handlers, pattern entities, counter
