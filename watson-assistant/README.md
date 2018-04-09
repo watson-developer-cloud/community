@@ -27,7 +27,7 @@
 - [Use a script to generate test utterances and simulate a user](#generate-chat-logs)
 
 **Banking demo example**
-- [Example Workspace] (#banking-workspace)
+- [Example Workspace](#banking-workspace)
 
 ## Ordering pizza
 
@@ -299,6 +299,6 @@ Sometimes you need a quick way to simulate a user and call the /message API with
      
 You can run generate_chat_logs.py --help for a description of all the input parameters.
 
-## Banking demo example <a id="banking-workspace"></a>
+## Banking demo example <a id=banking-workspace></a>
 #### Description
-[Example workspace](Banking-demo.json) showcases best practices for building out a workspace and different methods utilizing  the many of the features above- slots, digressions, multiple intents,etc. This example workspace is a banking use case, focusing on credit cards. 
+[Example workspace](banking-demo.json) showcases best practices for building out a workspace and different methods utilizing  the many of the features above- slots, digressions, multiple intents,etc. This example workspace is a banking use case, focusing on credit cards. 
