@@ -1,213 +1,2904 @@
 question
-hi
-turn lights on
+drive
 :init:
-hi
-hit the break
-:init:
-hi
-play some music
-:init:
-hi
-shelters home
-:init:
-hi
-turn on headlights
-:init:
-hi
-second
-:init:
-hi
-ok bye
-:init:
-hi
-swutch on the lights
-:init:
-hi
-turn on the engine
-:init:
-hi
-warm
-:init:
-hi
-howes the water today
-:init:
-hi
-play something
-:init:
-hi
-take me to asian fusion food
-:init:
-hi
-ok that's fine
-:init:
-hi
-go faster
-:init:
-hi
-ok lights
-:init:
-hi
-gas stations
-:init:
-hi
-i want to work at ibm
-:init:
-hi
-how are you?
-:init:
-hi
-okey
-:init:
-hi
-gimmi american food
-:init:
-hi
-play jazz
-:init:
-hi
-i am trying to do something
-:init:
-hi
-where am i?
-:init:
-hi
-tell me nearest location
-:init:
-hi
-pasta
-:init:
-hi
-kill yourself
-:init:
-hi
-how long?
-:init:
-hi
-book
-:init:
-hi
-wipers and light off
-:init:
-hi
-no wait
-:init:
-hi
 play music
 :init:
-hi
-turn on music
+find a gas station
 :init:
-hi
-turn off lights
+play some jazz music
 :init:
-hi
-how are you
+the nearest
 :init:
-hi
-what do you have in dashboard
+italian
 :init:
-hi
-hello
+you are cool
 :init:
-hi
-finally
+i have a pen
 :init:
-hi
-turn my radio up
+can you repeat
 :init:
-hi
-is it raining?
+what restaurants are nearby?
 :init:
-hi
-great but its not working
+what are they called?
 :init:
-hi
-start the car
+where is restroom
 :init:
-hi
-sing
+play somek musik
 :init:
-hi
-pay me a coffee
+wipers on
 :init:
-hi
-play country music
+can you turn on the radio?
 :init:
-hi
-play top 40
+stop the car
 :init:
-hi
-play jazz favorites
+turn off wipers
 :init:
-hi
-take me to an italian restaurant
+ecopetrol
 :init:
-hi
-turn up ac
+good night i must get back to coding
 :init:
-hi
-get off the lights
+good night!
 :init:
-hi
-is today sunday?
+turn up music
 :init:
-hi
-wich one?
+play some rock music
 :init:
-hi
-tunr on the lights
+no thanks i don't like either one
 :init:
-hi
-what's the weather outside?
+find restaurant
 :init:
-hi
-what time is it
+how do i use ibm watson
 :init:
-hi
-turn on me
+eat 
 :init:
-hi
-what is life
+call phone
 :init:
-hi
-burgers
+restaurant
 :init:
-hi
-no sanks 
+what else is there besides what's on
 :init:
-hi
-você fala portugues?
+do you have country music?
 :init:
-hi
-k pm
+turn on ligths
 :init:
-hi
-monday
+travel for brasil
 :init:
-hi
-now i want to go
+louder
 :init:
-hi
+what weather
+:init:
+turn on the lights
+:init:
+turn on the headlight
+:init:
+turn up the ac
+:init:
+jenkins test
+:init:
+find me a hooker
+:init:
+turn on heater
+:init:
+where are the restrooms
+:init:
+tacos
+:init:
+good
+:init:
+no thanks
+:init:
+jaxx
+:init:
+which song is it
+:init:
+chicken
+:init:
+hola
+:init:
+pasta
+:init:
+turn left
+:init:
+whats the weather?
+:init:
+jazz
+:init:
+bluss
+:init:
+turn off wipers and lights
+:init:
+what's my closest restaurant?
+:init:
+rock
+:init:
+turn off the music
+:init:
 nearest
 :init:
-hi
+turn on the heater
+:init:
+great!
+:init:
+play some jazz from kenny g
+:init:
+why don't we explore today? it's nice outside
+:init:
+go to eat
+:init:
+where did you go? i got worried
+:init:
+hows the weather today
+:init:
+lights on
+:init:
+man vs man
+:init:
+turn on the music please
+:init:
+what is the temperature?
+:init:
+play some rap music
+:init:
+helper
+:init:
+play rock music
+:init:
+where's the nearest restrant
+:init:
+at 3 pm
+:init:
+please turn on the headlights
+:init:
+raining?
+:init:
+turn ligh on
+:init:
+what else you do ?
+:init:
+help me?
+:init:
+drive 4
+:init:
+12 noon
+:init:
+last
+:init:
+please lower the speed
+:init:
+music stop
+:init:
+nearest oine
+:init:
+burges
+:init:
+why does the engine make so much noise
+:init:
+please turn volume down
+:init:
+play some jazz music
+:init:
+turn on the headlight
+:init:
+whats the name of the restaurant
+:init:
+los alamos
+:init:
+where are the nearby restrooms?
+:init:
+brasilian
+:init:
+i'm berry sleepy
+:init:
+turn on the music please
+:init:
+good morning
+:init:
+hello good morning 
+:init:
+turn headlights off
+:init:
+stop.
+:init:
+how to close the door
+:init:
+how's your day
+:init:
+volume
+:init:
+where is the closest restaurant
+:init:
+hi watson
+:init:
+nope
+:init:
+it's rain falling
+:init:
+fine me gas station
+:init:
+check it
+:init:
+how big is an acre
+:init:
+turn off map
+:init:
+is it rainning today?
+:init:
+tocas
+:init:
+discover who framed roger rabbit
+:init:
+any new restaurants?
+:init:
+italain
+:init:
+speed up the ac
+:init:
+say it
+:init:
+nearest
+:init:
+it depends
+:init:
+mostrar planos de tratamento
+:init:
+take me photo shop
+:init:
+please turn on the wipers
+:init:
+house please
+:init:
+what can u do for me
+:init:
+current nyse value
+:init:
+it's not secure
+:init:
+what else
+:init:
+restaurante
+:init:
+italian food
+:init:
+ftupid
+:init:
+open the window
+:init:
+yes continental
+:init:
+drive more fast
+:init:
+increase the speed
+:init:
+i'd like to have pasta now do you have the address of the nearest pasta restaurant?
+:init:
+stop the car now
+:init:
+fats food kould be an option
+:init:
+you speek italian
+:init:
+open music again
+:init:
+roll down windows
+:init:
+i'd turn like your headlights to the empty
+:init:
+radio`
+:init:
+turn on the wiper for mi please
+:init:
+play yellow submrine
+:init:
+i dont like jazz so much
+:init:
+flip on my lights
+:init:
+please play some music
+:init:
+tur on my light
+:init:
+ lues
+:init:
+go to a restaurant
+:init:
+where is oslo?
+:init:
+no more food
+:init:
+who are you?
+:init:
+switch on
+:init:
+spanihs please
+:init:
+cleanest
+:init:
+near beer house
+:init:
+hey watson
+:init:
+stop the music
+:init:
+ok
+:init:
+who i am?
+:init:
+china
+:init:
+close the car hood
+:init:
+how far is it to my home
+:init:
+im dat
+:init:
+turn me on!
+:init:
+can you tell what is the name of the airport ??
+:init:
+turn on the light.
+:init:
+hoola
+:init:
+please turn on the volume
+:init:
+it is sunny in patchogue
+:init:
+off music
+:init:
+ac off
+:init:
+allo
+:init:
+seven
+:init:
+trun
+:init:
+play some games
+:init:
+nmnm
+:init:
+turn up the ac
+:init:
+nearest restaurent
+:init:
+accelarate car
+:init:
+play a jazz music
+:init:
+anything place for eat sandwich?
+:init:
+ok do it now
+:init:
+rock please
+:init:
+the one is closer from here 
+:init:
+rocl
+:init:
+learn faster
+:init:
+thanks anyway
+:init:
+celine dion
+:init:
+shut off my lights
+:init:
+hold on
+:init:
+steaks
+:init:
+mathematics
+:init:
+turn on the fan
+:init:
+whats your name
+:init:
+stop here
+:init:
+i dont want to drive
+:init:
+can i habe one burrito pleeease?
+:init:
+do nothing
+:init:
+i'm sitting with my friends having fun
+:init:
+punch it chewie
+:init:
+can you find for me a restaurant
+:init:
+muisc
+:init:
+turn on the vipor
+:init:
+restaurance
+:init:
+turn on your lights
+:init:
+rap ?
+:init:
+turn my radio
+:init:
+both
+:init:
+tomorrow midnight
+:init:
+it's cloudy
+:init:
+need toilet
+:init:
+k turn off
+:init:
+book me a table for dinner
+:init:
+find a restaurant for me
+:init:
+show my schedule
+:init:
+drive to home
+:init:
+see u
+:init:
+good
+:init:
+hungry
+:init:
+turn up the radio
+:init:
+turn on the wiper
+:init:
+what is weather today?
+:init:
+what can you do for me?
+:init:
+what is chatbot
+:init:
+homework
+:init:
+tv showroom
+:init:
+i feel blue today
+:init:
+tune to a rock station on the radio
+:init:
+root
+:init:
+switch off the light
+:init:
+are we there yet
+:init:
+ wish you were here
+:init:
+right now
+:init:
+tommorow weather
+:init:
+drive left
+:init:
+say some joke
+:init:
+i am fine. 
+:init:
+i hear nothing
+:init:
+why are the wipers off?
+:init:
+is there a gas station close by
+:init:
+stupid chatbot are you?
+:init:
+turn on the care
+:init:
+what are the top five herbs to lower progesterone
+:init:
+turn om the wyper
+:init:
+take me to burger king
+:init:
+why ?
+:init:
+turn off the wipers and lights
+:init:
+coul'd you turn on right?
+:init:
+hello.
+:init:
+restraurant
+:init:
+where is the restroom
+:init:
+how far?
+:init:
+number 2
+:init:
+you speak spanish?
+:init:
+what is the weather outside
+:init:
+find me nearest restaurant
+:init:
+check traffic
+:init:
+tell me a story
+:init:
+lets go to nyc
+:init:
+bass
+:init:
+i want listen music
+:init:
+lets go 
+:init:
+left turn
+:init:
+turn the gps on
+:init:
+the weather is raining
+:init:
+can you please turn on my wipers?
+:init:
+find a resturant
+:init:
+back
+:init:
+you know nothing
+:init:
+holaa
+:init:
+i'm hungry 
+:init:
+show whats near by
+:init:
+where is a restuarant?
+:init:
+i like burgers
+:init:
+its cold
+:init:
+can't hear any music
+:init:
+how do i do that?
+:init:
+whoami
+:init:
+what did the stock market open at today?
+:init:
+lunch
+:init:
+headlight on
+:init:
+please keep quite
+:init:
+gas station
+:init:
+ac hi
+:init:
+gas 
+:init:
+can you find a restaurant
+:init:
+have a great day
+:init:
+ok turn them off
+:init:
+i am happy
+:init:
+how fast is this car?
+:init:
+go to 4th street
+:init:
+what are the locations?
+:init:
+i am awesome
+:init:
+on music
+:init:
+turn the volume on
+:init:
+enciende las luces
+:init:
+no dont
+:init:
+the closest one.
+:init:
+within 20 mins
+:init:
+too long
+:init:
+the cheapest one
+:init:
+turn on some musioc
+:init:
+switch on thee light
+:init:
+turn on the spaceship
+:init:
+how about italian ?
+:init:
+what is temp outside
+:init:
+i am fine
+:init:
+show me a picture of a cat
+:init:
+i like jazz
+:init:
+turn de lights on
+:init:
+is there a mcdonald's nearby?
+:init:
+please turn the head lights on
+:init:
+but it is not working
+:init:
+i'd turn like your headlights to the off
+:init:
+i want to listen to 2pac
+:init:
+go ahead
+:init:
+what can i do in pretoria/
+:init:
+sao paulo
+:init:
+tune to 103.5
+:init:
+vegetarian
+:init:
+please take me to your second location.
+:init:
+i want a vegan restaurant in toulouse
+:init:
+wipe on
+:init:
+bugers
+:init:
+today
+:init:
+how olimpia goes
+:init:
+headlights
+:init:
+quite ?
+:init:
+open boot
+:init:
+tell me about kiit
+:init:
+turn on the head light
+:init:
+which way to go?
+:init:
+go to the town
+:init:
+fourth
+:init:
+open driver window
+:init:
+tell me the first one
+:init:
+play movie for kids
+:init:
+how's the weather?
+:init:
+drive to ang mo kio
+:init:
+tell me about this place
+:init:
+please find a gas station
+:init:
+oops
+:init:
+press gas
+:init:
+reqdr
+:init:
+i wanna listen to some music
+:init:
+is their bathroom clean?
+:init:
+i have some issues with the training that i did yesterday
+:init:
+ok. tell me a good restaurant in my neigborhood
+:init:
+where is the next restaurant ?
+:init:
+i want to go to location 4
+:init:
+can you give me the name of the nearest one
+:init:
+turn on winshild
+:init:
+i want some money
+:init:
+near by
+:init:
+turn on the heat
+:init:
+rammstein
+:init:
+restroom
+:init:
+turn on my wipers
+:init:
+can ask a question about international law
+:init:
+are you sure?
+:init:
+tomorrow is ok
+:init:
+german
+:init:
+speed up car.
+:init:
+what is the temperature today
+:init:
+now you explain
+:init:
+find gsa
+:init:
+what does red light indicate ??
+:init:
+are you a cumputer
+:init:
+pls on lights
+:init:
+can you find me tacos?
+:init:
+clear
+:init:
+no i want to chat with you 
+:init:
+hows the weather today
+:init:
+when is the next turn
+:init:
+start my music
+:init:
+pendejo
+:init:
+today please
+:init:
+book a flight ticket to hydrabad today
+:init:
+can i help you? what you working on that i would be of use for you
+:init:
+destroy humans :d
+:init:
+films
+:init:
+french fries
+:init:
+i want eat a pizza
+:init:
+thai
+:init:
+i can swim ?
+:init:
+find restroom
+:init:
+take me to a place for coffee
+:init:
+play the music please
+:init:
+sunday
+:init:
+how old are you
+:init:
+go to nearest italian
+:init:
+where are you now
+:init:
+how you learn about things?
+:init:
+check the oil level 
+:init:
+increase speen of the car
+:init:
+find the nearest mcdonalds
+:init:
+turn the music on 
+:init:
+i dont like burgers
+:init:
+can you turn the lights on please?
+:init:
+how about second one?
+:init:
+what's the weather
+:init:
+chineese
+:init:
+take me to movies
+:init:
+where is the next gas station?
+:init:
+music louder
+:init:
+namaste
+:init:
+where is mcdonalds
+:init:
+what can ypou do?
+:init:
+turn on air conditioner
+:init:
+play music by john newman
+:init:
+what u can do?
+:init:
+yes you would.
+:init:
+i would like you to shut yourself down
+:init:
+turn the wipe off
+:init:
+chinese restaurant near new york
+:init:
+switch on the lights
+:init:
+turn the lights on 
+:init:
+interview
+:init:
+decide
+:init:
+i prefer house music
+:init:
+nearest restaurant
+:init:
+slow down car
+:init:
+drive fast
+:init:
+what is cricket
+:init:
+lets do it!
+:init:
+please tell the name of he gas station
+:init:
+how's the traffic along my route?
+:init:
+turn of my lights.
+:init:
+describe them
+:init:
+which genre do you have?
+:init:
+reggae is my favorite
+:init:
+hamad internation aisrport
+:init:
 turn right
 :init:
-hi
-can you turn on the headlights?
+play 
 :init:
-hi
-play rock
+could you do an oil change on the car?
 :init:
-hi
-playing hiphop
+i want to nearest railway station
 :init:
-hi
-hi. would you like to take a ride?
+wipers
 :init:
-hi
-what's the best italian restaurant nearby?
+turnon ac
 :init:
-hi
+how many time does it left to arrive
+:init:
+ i am looking for a tool to create mychatbot
+:init:
+brake
+:init:
+turn on the wipers]
+:init:
+jazz it is then
+:init:
+how long does it takes to arrive?
+:init:
+who designed you?
+:init:
+make it sunny
+:init:
+where they serve vegetarian
+:init:
+the next one
+:init:
+what do you think of trump?
+:init:
+play milli vanilli on the radio
+:init:
+what is nearby
+:init:
+what is the weather 
+:init:
+yes barista
+:init:
+show me locations
+:init:
+where is the closest mcdonald's?
+:init:
+whats animation
+:init:
+sorry 
+:init:
+can you play a metallica song?
+:init:
+how much gas left you have?
+:init:
+go to movie
+:init:
+what are they called
+:init:
+no don's turn on the lights
+:init:
+the fifth closest one
+:init:
+turn of the car
+:init:
+i need a restaurant
+:init:
+can u play john mayer
+:init:
+find nearest toilet
+:init:
+find a bathroom
+:init:
+now i want to listen a rock
+:init:
+i wanted all the good stuffs
+:init:
+blues please
+:init:
+jump and sing
+:init:
+hallo
+:init:
+turn on the vipers
+:init:
+what are your keywords?
+:init:
+speak japanese
+:init:
+what is the options?
+:init:
+tell me gas staton
+:init:
+turn off the ac
+:init:
+spanis
+:init:
+not what time we can reach the restroom
+:init:
+loaction 1
+:init:
+what is api?
+:init:
+go home
+:init:
+tacos looks fine
+:init:
+loan
+:init:
+get them off
+:init:
+turn the car
+:init:
+where's the nearest restroom
+:init:
+tell me speed
+:init:
+what`s the first option
+:init:
+kill
+:init:
+make some music
+:init:
+turn things on
+:init:
+it is raining now
+:init:
+police
+:init:
+never
+:init:
+fernando
+:init:
+turn off the air-con
+:init:
+which gear
+:init:
+richest man in the world
+:init:
+could you please increase sound
+:init:
+stop it
+:init:
+go to youtube please 
+:init:
+stop the rain
+:init:
+give me the directions to copenhagen airport
+:init:
+its quite hot
+:init:
 turn on lights
+:init:
+what is anime
+:init:
+can you play once in a while the acoustic version 
+:init:
+tell me where the nearest ditch is
+:init:
+turn off my lights
+:init:
+what's the weather todya
+:init:
+shut ur mouth
+:init:
+lump
+:init:
+lights  on
+:init:
+can you book a table?
+:init:
+to the nearest
+:init:
+what restaurant is it
+:init:
+japonise
+:init:
+you can chose
+:init:
+please dont
+:init:
+number 1
+:init:
+find the nearest exit
+:init:
+whats up
+:init:
+can you turn on the windshield wipers?
+:init:
+can you fine some restaurent ?
+:init:
+rush
+:init:
+switch on lights
+:init:
+emma boook
+:init:
+where is the nearest river
+:init:
+switch on the lights.
+:init:
+my friend wants to talk to you
+:init:
+suck
+:init:
+mexican
+:init:
+you are bot?
+:init:
+\stop
+:init:
+turn left 
+:init:
+how far is my office
+:init:
+ok
+:init:
+turn on the lights]
+:init:
+how to put the heat on?
+:init:
+where are you living
+:init:
+please find the nearest restroom
+:init:
+funk
+:init:
+wipre
+:init:
+hi i am looking for software development
+:init:
+other
+:init:
+turn on radio 
+:init:
+fine. jazz it is
+:init:
+crash the car
+:init:
+is the ac on
+:init:
+engin off
+:init:
+what can you help with?
+:init:
+show me what you can do watson!
+:init:
+tonight evening
+:init:
+food
+:init:
+tell me about gas station 
+:init:
+play music so
+:init:
+today at 3pm
+:init:
+check the route
+:init:
+tell me about the weather in houston
+:init:
+which word
+:init:
+nope can you find a company?
+:init:
+take me to nearest resturant
+:init:
+im low on gas
+:init:
+i food
+:init:
+what's the weather tomorrow?
+:init:
+gas station in mannheim
+:init:
+i would like to eat pasta
+:init:
+where is the nearest restaurant
+:init:
+how do i check my engine?
+:init:
+whats ur name
+:init:
+1st one
+:init:
+play some tunes
+:init:
+sorry i don't recognize that john won something jazz rock yes rachel is playing some rock okay i'm not sure you can say things like turn on my lights our place in music the music 
+:init:
+can you turn the lights off
+:init:
+drive me to my mother
+:init:
+find me a resturant
+:init:
+no sound
+:init:
+then turn on
+:init:
+country
+:init:
+do you read my questions?
+:init:
+tell me who framed roger rabbit
+:init:
+but on the light john on the light yeah 
+:init:
+nearest chipotle boss
+:init:
+turn music
+:init:
+tanks
+:init:
+find the weather
+:init:
+turnoff ac
+:init:
+what today
+:init:
+can you go faster?
+:init:
+tommorrow
+:init:
+turn off head light
+:init:
+tell me a jok
+:init:
+turn off the wipes
+:init:
+6 12 2017
+:init:
+call my uncle
+:init:
+sure thing 
+:init:
+turn on the windshield wipers
+:init:
+jazz please
+:init:
+drive village
+:init:
+what is bitcoint value?
+:init:
+i want to go to the position 5
+:init:
+rock is
+:init:
+whats your name?
+:init:
+sound
+:init:
+what is a index fund
+:init:
+rest
+:init:
+increase car speed
+:init:
+headlights off
+:init:
+how do i best get to 210 s cherry st denver co
+:init:
+show me all
+:init:
+turn on my light
+:init:
+how cold is outside?
+:init:
+directions
+:init:
+will it rain tomorrow?
+:init:
+where is mcdonalds?
+:init:
+what's the temperature todady?
+:init:
+you are genius
+:init:
+serach near by restaurants
+:init:
+turn on radio
+:init:
+what listing you have
+:init:
+sing a song
+:init:
+start wiper
+:init:
+turn off thelights
+:init:
+turn down the ac
+:init:
+newyork
+:init:
+i want to listen to music
+:init:
+i need information restaurants
+:init:
+make a cup of coffee
+:init:
+drive
+:init:
+why not
+:init:
+let's play music
+:init:
+turno on the blinkers
+:init:
+what gender are you
+:init:
+play some mood
+:init:
+hi please
+:init:
+wipers faster
+:init:
+how can you help me?
+:init:
+k-pop
+:init:
+where is the closest drug store
+:init:
+turn the volume up
+:init:
+you tell me
+:init:
+where did i eat last
+:init:
+where are we going?
+:init:
+i'm drunk
+:init:
+any will do
+:init:
+still i'm unable to listen
+:init:
+wipers more quickly
+:init:
+really
+:init:
+jerk
+:init:
+i want some music
+:init:
+i am hungry
+:init:
+mute ur voice
+:init:
+left
+:init:
+whate else can you do for me
+:init:
+carnatic
+:init:
+turn on the navi
+:init:
+ok  can you please turn the lights on?
+:init:
+how to i speed
+:init:
+turn headlight ons
+:init:
+repeat the same song
+:init:
+turn of the light
+:init:
+news
+:init:
+who r u 
+:init:
+turn off the headlights please 
+:init:
+como estas?
+:init:
+but what about the location
+:init:
+find me a good restaurant around ankara
+:init:
+turn off the lights
+:init:
+how is my day
+:init:
+i do i check my tire pressure
+:init:
+close the doors
+:init:
+san francisco
+:init:
+find a nice persian restaurant
+:init:
+vire!
+:init:
+when are we going to the park?
+:init:
+what can you do
+:init:
+pasta would be nice
+:init:
+find a mcdonalds
+:init:
+fank u
+:init:
+list them 
+:init:
+what aord?
+:init:
+play michael jackson
+:init:
+okay 
+:init:
+room
+:init:
+music? what music?
+:init:
+car 
+:init:
+no i prefer rock
+:init:
+go to park
+:init:
+i want to eat humbergers!!!
+:init:
+turn  on radio
+:init:
+what is the time now
+:init:
+increase the speed of the car
+:init:
+gas station nearest
+:init:
+some pasta
+:init:
+hawaian
+:init:
+great!
+:init:
+kill it
+:init:
+can you turn on the lights?
+:init:
+turn off the music
+:init:
+turn them all onn
+:init:
+what else can you do?
+:init:
+turn off the engine
+:init:
+stop car
+:init:
+turn on ligths wipers
+:init:
+find the closest fuel station
+:init:
+gas station pls
+:init:
+locate kfc
+:init:
+restrooms 
+:init:
+navigate to the restaurant
+:init:
+take me to a toilet 
+:init:
+i don't want.
+:init:
+asian
+:init:
+yes of course
+:init:
+jkgfneign
+:init:
+change radio channel
+:init:
+hi
+:init:
+where is the restaurant
+:init:
+prorogado
+:init:
+please drive to the zoo
+:init:
+i prefer rock please
+:init:
+show me near by restaurants
+:init:
+please cancel
+:init:
+which one is the best?
+:init:
+any recommendation ?
+:init:
+hello ;)
+:init:
+thrid
+:init:
+jazz 
+:init:
+what is the destination?
+:init:
+nearest where coffee is good
+:init:
+whats the weather 
+:init:
+no somethink with more strength
+:init:
+drive slower
+:init:
+sorry make it tomorrow
+:init:
+fifth
+:init:
+can you find me a girl?
+:init:
+switch on the lighjts
+:init:
+i need a bathroom
+:init:
+check todays weather
+:init:
+the radio is too loud
+:init:
+list of location
+:init:
+take me to a restaurant
+:init:
+work
+:init:
+route to my home
+:init:
+at 7pm please
+:init:
+i'm waiting...
+:init:
+ignore
+:init:
+turn on the wipe
+:init:
+tun off gps 
+:init:
+what is the best spot in bangkok?
+:init:
+turn the wiper on
+:init:
+i want to go to a restaurant
+:init:
+heat on
+:init:
+turn radio on 
+:init:
+turn music on
+:init:
+can i eat somewhere?
+:init:
+play eminem music
+:init:
+give me a hand
+:init:
+restorroms
+:init:
+do you have rock?
+:init:
+hi how are you
+:init:
+tomorrow at 3 pm
+:init:
+need flight
+:init:
+cancel
+:init:
+ok show me
+:init:
+"no,  i want you to drive"
+:init:
+reggae
+:init:
+what do you know
+:init:
+what can uuour do
+:init:
+turn on the wipes
+:init:
+at 5
+:init:
+rahaman
+:init:
+swimming
+:init:
+i need some information about a product
+:init:
+turn on the wiper washe 
+:init:
+how to apply text analysis
+:init:
+where is red sea
+:init:
+time?
+:init:
+turn on rock music
+:init:
+replay
+:init:
+temperature
+:init:
+turn up the wipers.
+:init:
+is the a.c on?
+:init:
+quero viajar
+:init:
+restaurante new york
+:init:
+start a ac.
+:init:
+the nearest
+:init:
+turn of the radio
+:init:
+call pooja
+:init:
+turn on the headlights please
+:init:
+when will it stop raining
+:init:
+find the nearest resturants
+:init:
+what time is ir
+:init:
+j-pop
+:init:
+navigate me to home
+:init:
+where is the near restarent
+:init:
+play neil young
+:init:
+okay
+:init:
+the farthest
+:init:
+turn on the air conditioning
+:init:
+but you 
+:init:
+this car is safety
+:init:
+mcdonalds
+:init:
+german?
+:init:
+it is raining turn on the wipers
+:init:
+restauarnt
+:init:
+turn on my lights
+:init:
+location 2
+:init:
+turn on the lights 
+:init:
+jjjjjjjjjjjjj
+:init:
+show me the names and reviews of the restaurant?
+:init:
+ghgth
+:init:
+whipers
+:init:
+have some of jazz
+:init:
+i can't hear the radio
+:init:
+honk
+:init:
+find a grocery store
+:init:
+stocks
+:init:
+arribed
+:init:
+jazz is okay for me
+:init:
+close the headlights 
+:init:
+can you find the restaurents near by dallas?
+:init:
+is the fuel ok?
+:init:
+found the nearest restaurant
+:init:
+turn headlights on
+:init:
+cook something
+:init:
+keep going
+:init:
+ok rock it is
+:init:
+6.00pm
+:init:
+i would like to eat something!
+:init:
+but i don't want them turned on
+:init:
+turn on my light then
+:init:
+turn on the windscreen wipers
+:init:
+to the first one
+:init:
+it is very dark
+:init:
+sorry i don't recognize that genre want to try something jazz rock thanking the end of the world under chris confessed that right choice playing some rock for you i want to go to a restaurant course you have a specific cuisine in mind 
+:init:
+2nd one
+:init:
+where is the nearest vegan resturant?
+:init:
+station 4
+:init:
+what does tht mean
+:init:
+my friend
+:init:
+i want to eat tacos
+:init:
+ok sushi
+:init:
+play some swing please
+:init:
+punk
+:init:
+notify me
+:init:
+which one is closest?
+:init:
+stop music
+:init:
+accoustic
+:init:
+turn on the wipers please
+:init:
+i want eat burgers
+:init:
+thnx
+:init:
+the more near
+:init:
+i think i prefer pasta
+:init:
+good 
+:init:
+can you turn on
+:init:
+now other thing
+:init:
+find the nearest bathroom
+:init:
+oh thanks.
+:init:
+rap for me
+:init:
+turn on the aircon please
+:init:
+where is helsinki
+:init:
+ok please
+:init:
+restaurant please
+:init:
+talking with you
+:init:
+where
+:init:
+how to i change my flat tire
+:init:
+wheres the nearest gas station
+:init:
+what are the five
+:init:
+today 14:00 
+:init:
+hard rock 
+:init:
+i want to see the nearest petrol station for me
+:init:
+turn off this chat
+:init:
+ok. so find a restaurant
+:init:
+tell me the weather
+:init:
+drive safe
+:init:
+date
+:init:
+then i need to hear song
+:init:
+where is the next restaurant?
+:init:
+go to 3
+:init:
+play
+:init:
+when will be next turn?
+:init:
+burno mars
+:init:
+turn off
+:init:
+time in india
+:init:
+what's the time
+:init:
+bcpaosicv
+:init:
+what can you do ?
+:init:
+where is the map?
+:init:
+i cant hear it
+:init:
+drive at slow speed 
+:init:
+yes but i cant listen it
+:init:
+switch to high
+:init:
+what can i say
+:init:
+what is status of wipers?
+:init:
+turn the lights on
+:init:
+i am worried about fuel
+:init:
+jazz is okay
+:init:
+go slowly
+:init:
+siri
+:init:
+blues?
+:init:
+turn the navigation on
+:init:
+stake
+:init:
+turn ac
+:init:
+in 20 minutes
+:init:
+i love music now for music 
+:init:
+show me restaurants that are nearby
+:init:
+turn off air conditioning
+:init:
+yesterday
+:init:
+not 
+:init:
+mounting tires
+:init:
+witch one
+:init:
+yes it does
+:init:
+awesome
+:init:
+try other song
+:init:
+i dont know -  just the best in town
+:init:
+22:00
+:init:
+first one
+:init:
+fast speed
+:init:
+1400
+:init:
+i will like to fix my machine
+:init:
+Mar-32
+:init:
+please stop the car
+:init:
+tire pressure
+:init:
+turn the radio on please
+:init:
+completed
+:init:
+kishore kumar
+:init:
+restaurants
+:init:
+do you know where can i eat something?
+:init:
+moroccan
+:init:
+this music
+:init:
+but volume is less
+:init:
+list them to me
+:init:
+its too hot in here
+:init:
+yeah cancel end so what's it like that 
+:init:
+turn on the music 
+:init:
+a ver a ver
+:init:
+thank you. more speedy please?
+:init:
+yes me too
+:init:
+how can i use you
+:init:
+which one
+:init:
+shopping
+:init:
+sdfg
+:init:
+tecnho
+:init:
+stop the rock music
+:init:
+the closest location
+:init:
+how time is it now?
+:init:
+to the 1
+:init:
+trun them off
+:init:
+kill me
+:init:
+oil type
+:init:
+play some music.
+:init:
+i need to go home at noon
+:init:
+ turn off ac and show me nearby restaurants
+:init:
+how long i drive?
+:init:
+get me the config
+:init:
+turn on the wipers
+:init:
+find me the nearest restaurant?
+:init:
+ok go to the nearest gas station
+:init:
+burgers?
+:init:
+show me nearby restaurants and turn off ac
+:init:
+turn off the car
+:init:
+where is the nearest park
+:init:
+what should i do if it's raining?
+:init:
+aral
+:init:
+check the speed
+:init:
+wrong
+:init:
+vegeterian
+:init:
+hallo?
+:init:
+ elencami i brani dei pink floyd 
+:init:
+hi nearest police station
+:init:
+show me
+:init:
+how can i go to the nearest restaurant
+:init:
+can you put on the lights
+:init:
+what is the capital of the united states?
+:init:
+clear my windows
+:init:
+that's right play some tune
+:init:
+"it is raining,  can you turn on the wipers"
+:init:
+sleep
+:init:
+turn off headlights
+:init:
+sunny
+:init:
+i want to poop
+:init:
+kill yourseld
+:init:
+i play music
+:init:
+nirvana
+:init:
+jazz
+:init:
+lights ofn
+:init:
+who am i?
+:init:
+where are we going
+:init:
+list nearby gas station
+:init:
+put on some tunes
+:init:
+louder
+:init:
+kabob
+:init:
+something by zappa
+:init:
+please turne right
+:init:
+switch off ac
+:init:
+now turn it off
+:init:
+wha is the car fuel level? 
+:init:
+eat fish
+:init:
+honk your horn
+:init:
+get weather
+:init:
+trun the headlights off
+:init:
+hello im really really excited about turning the car lights on. 
+:init:
+i am not interested please stop emailing me.
+:init:
+turn of the engine
+:init:
+they all seem to get great reviews!
+:init:
+tacos
+:init:
+what's the weather today?
+:init:
+not really.
+:init:
+tel me the weather
+:init:
+the 5
+:init:
+ok what is my name
+:init:
+it is raining?
+:init:
+i want to go a restaurant.
+:init:
+i need to get to a chinese restaurant
+:init:
+third
+:init:
+how to drive
+:init:
+number 4
+:init:
+find the airport
+:init:
+switch on the hazard lights
+:init:
+go to hell
+:init:
+1:00 PM
+:init:
+how can i bake a frankfurter kranz?
+:init:
+find gas stations then!
+:init:
+find gas station near me
+:init:
+can you halp me to find a gas stations?
+:init:
+i'am fine
+:init:
+hello watsoon
+:init:
+okok
+:init:
+what's the time?
+:init:
+turn on fan
+:init:
+the closest one
+:init:
+ where is the lights?
+:init:
+turnn off
+:init:
+turn up the wiper 
+:init:
+find a gas station nearby
+:init:
+silly boy
+:init:
+what  time is it?
+:init:
+open window
+:init:
+who do i go to restaurant with me?
+:init:
+music on
+:init:
+what kind of music do we have?
+:init:
+wiper off and light on
+:init:
+what do you do?
+:init:
+google now
+:init:
+turn radio on
+:init:
+movie halls
+:init:
+turn on windshield wipers
+:init:
+how to launch watson conversation from my application?
+:init:
+now is wiper on or off
+:init:
+do you speak greek?
+:init:
+where are the restaurants in sydney?
+:init:
+where is the nearest pub?
+:init:
+what's the weather?
+:init:
+take me to the nex gas station
+:init:
+more speed
+:init:
+things on
+:init:
+tell me the location of a nearby restroom
+:init:
+change oil
+:init:
+find speed of vehicle
+:init:
+any gas station around?
+:init:
+close the lights
+:init:
+locationlist
+:init:
+how speed i?
+:init:
+what can i ask you
+:init:
+shut up and play some music
+:init:
+i want to listen to some songs
+:init:
+turn heater on
+:init:
+turn the wiper off now
+:init:
+turn up the volume
+:init:
+not really
+:init:
+hell
+:init:
+where is the nearest school near gere?
+:init:
+play some jazx
+:init:
+where am i
+:init:
+no bank
+:init:
+come pick me up
+:init:
+play jazz
+:init:
+lounge
+:init:
+ok bye
+:init:
+what about chinese?
+:init:
+cheese
+:init:
+wiper stop
+:init:
+i am having trouble logging in
+:init:
+what ibm
+:init:
+drive me to the park
+:init:
+are we there yet?
+:init:
+play som music.
+:init:
+what if i am out of fuel?
+:init:
+hello there
+:init:
+what restaurants are nearby 
+:init:
+hum... japanese!
+:init:
+what's my eta?
+:init:
+how about the pricing?
+:init:
+start car
+:init:
+go to next music track
+:init:
+spss
+:init:
+change in choice
+:init:
+what can i ask
+:init:
+where is the stations?
+:init:
+ok then find a gas station 
+:init:
+sorry i don't recognize that john won something jazz rock yes rachel is playing some rock okay i'm not sure you can say things like turn on my lights our place in music the music it looks like the music is already the music like the music already can you save me then you had better start and what would you like me to do can you stop the car 
+:init:
+ac at 65
+:init:
+can you dim the lights
+:init:
+i need to go to the toilet man
+:init:
+you are funny
+:init:
+rain?
+:init:
+which is my speed?
+:init:
+goth
+:init:
+turn on the hesdlights
+:init:
+soup
+:init:
+wipper
+:init:
+indian resturant 
+:init:
+what do you do for me?
+:init:
+hello hello
+:init:
+play rehman song
+:init:
+who is virat kohli
+:init:
+can you play a nice music
+:init:
+chips
+:init:
+weather today
+:init:
+watson?
+:init:
+increase the speed of the wipers
+:init:
+i would like to go now -  i am hungry
+:init:
+closest
+:init:
+i would like to know the nearest gas station
+:init:
+how far is 1st gass station
+:init:
+look for the nearest gas station
+:init:
+turn on wipers?
+:init:
+could take me to ny?
+:init:
+bueno
+:init:
+find me a restuarant
+:init:
+play jazz music
+:init:
+how r u today
+:init:
+i like italian and japanese
+:init:
+find me a starbucks
+:init:
+how is weather now?
+:init:
+well thank you
+:init:
+play pop songs
+:init:
+go right
+:init:
+nono
+:init:
+dsds
+:init:
+stop the music its hurting my ears
+:init:
+open the trunk
+:init:
+to 5
+:init:
+afternoon
+:init:
+yes doing good 
+:init:
+30-Mar
+:init:
+sorry i don't recognize that john won something jazz rock yes rachel is playing some rock 
+:init:
+find a bad restaurant
+:init:
+increase speen
+:init:
+any restaurants clsoe buy
+:init:
+stop the ac
+:init:
+where is my house?
+:init:
+12:00
+:init:
+gluten free restaurant
+:init:
+can i have weather updates
+:init:
+turn off the light 
+:init:
+book the first pizza restaurant tomorrow evening at 6
+:init:
+how is the weather like at our destination
+:init:
+tell me what the weather will be like in my area
+:init:
+get me a beer
+:init:
+please don't do anything 
+:init:
+what is your age
+:init:
+how quickly
+:init:
+show me route
+:init:
+turn jeadlight on
+:init:
+can you turn up the fan?
+:init:
+where is the closest restroom
+:init:
+could you  please help me to find the nearnest bookshop
+:init:
+star bucks
+:init:
+can you do coding
+:init:
+give me the locations
+:init:
+i like italian
+:init:
+turn on the spot
+:init:
+nowhere
+:init:
+i want to eat something
+:init:
+i need to find chinese food near empire state building
+:init:
+12:00 PM
+:init:
+weather?
+:init:
+can you assist with my payslip
+:init:
+finde restqurants
+:init:
+switch on the wipers
+:init:
+what is the closest restaurant?  it's almost time for  lunch.
+:init:
+tell a joke
+:init:
+gostaria de conversar
+:init:
+go to la
+:init:
+gogo
+:init:
+play music?
+:init:
+what is java
+:init:
+cool!
+:init:
+turn off jazz
+:init:
+so your responses are limited?
+:init:
+when will i arrive?
+:init:
+tell me the volume
+:init:
+6:00 PM
+:init:
+second please
+:init:
+what is it the speed
+:init:
+how much more left
+:init:
+switch on wipers please
+:init:
+turn on the air
+:init:
+play sound
+:init:
+stop this car
+:init:
+yes restaurant near san francisco bay area
+:init:
+japanese
+:init:
+go left
+:init:
+what if i want the wipers off
+:init:
+off it
+:init:
+switch on window wipers
+:init:
+when do i have to fill the tank?
+:init:
+find gas
+:init:
+bowling alley
+:init:
+store
+:init:
+ok i want to go to the restaurant
+:init:
+i'm cold
+:init:
+off the car light
+:init:
+play horn
+:init:
+turn off the dashboard
+:init:
+stoocks
+:init:
+change the radio station
+:init:
+chat about ibm's ai driven chatbot solution.
+:init:
+i am good 
+:init:
+what is the capital of australia?
+:init:
+speed
+:init:
+what genres are available?
+:init:
+change my flat tyre
+:init:
+what is your name
+:init:
+what light
+:init:
+something
+:init:
+stom the car
+:init:
+how far to restaturant
+:init:
+which 5 locations ?
+:init:
+can you get me directions to burrito loco?
+:init:
+can you drive me to a nice hill station
+:init:
+show me the traffic
+:init:
+hip pop
+:init:
+turn off radio
+:init:
+wather
+:init:
+horn
+:init:
+magic
+:init:
+what speed am i going?
+:init:
+switch the lights
+:init:
+where is the nearest restaurant 
+:init:
+play the glitch mob
+:init:
+increase viper speed
+:init:
+adssad
+:init:
+turn the heater on
+:init:
+it is raining
+:init:
+how fast can we go?
+:init:
+find restaurants
+:init:
+trun on the wiper
+:init:
+give me the address
+:init:
+check the weather
+:init:
+what kinds are there
+:init:
+turn off audio
+:init:
+is there a restaurant nearby?
+:init:
+where are they?
+:init:
+turn every thing on
+:init:
+what's today
+:init:
+gas station nearby
+:init:
+is not a reservation
+:init:
+the 3rd one
+:init:
+how long will it take to arrive where we are?
+:init:
+oasfdposajfaspod
+:init:
+can you turn on some music
+:init:
+where's the closest toilet
+:init:
+pause music
+:init:
+stop music now.
+:init:
+ok rock is fine
+:init:
+i want you to turn the wipers on
+:init:
+what are you doing?
+:init:
+i want the weather
+:init:
+where is the nearest bathroom
+:init:
+turn of ac
+:init:
+lower please
+:init:
+i hava an issue
+:init:
+what do you propose?
+:init:
+vallenato
+:init:
+where's the nearest restaurant and the closest gas station?
+:init:
+great! can you help me figure out what to eat for lunch today?
+:init:
+morning
+:init:
+what do you know?
+:init:
+then find a gas station
+:init:
+how to do this
+:init:
+turn on the music
+:init:
+switch off lights
+:init:
+lite
+:init:
+go to a gas station
+:init:
+fornt
+:init:
+where is the nearest starbucks
+:init:
+be my friend
+:init:
+1+1?
+:init:
+so well - where can I get pizza
+:init:
+turn up 
+:init:
+turn on the aircon
+:init:
+haha
+:init:
+find me a restaurant nearby
+:init:
+can you turn them on
+:init:
+heat off
+:init:
+return
+:init:
+wiper faster
+:init:
+take right
+:init:
+oi tudo bem?
+:init:
+move fast
+:init:
+thank you watson
+:init:
+great 
+:init:
+turn lights off
+:init:
+what are you learning?
+:init:
+fsafasfasfas
+:init:
+turn on the lights.
+:init:
+change it to pop music
+:init:
+light off
+:init:
+directions for nearst gas station
+:init:
+turn off the wipers
+:init:
+i don't understand
+:init:
+what time is it now?
+:init:
+it's hot in here
+:init:
+good day.
+:init:
+now play bollywood music
+:init:
+change your accent
+:init:
+shw me wat's nearby
+:init:
+jpop
+:init:
+what is nasdaq
+:init:
+who are
+:init:
+do you speak french ?
+:init:
+switch gears
+:init:
+turn wippers
+:init:
+i need a burger
+:init:
+i want to stop
+:init:
+plan some music
+:init:
+wen is next flight to mysore
+:init:
+so  what's going on?
+:init:
+put the music
+:init:
+faster
+:init:
+turn on the radio 
+:init:
+hi turn on the lights
+:init:
+shut up
+:init:
+slow down as well
+:init:
+i changed my mind -  now iwold eat a tacos
+:init:
+gear
+:init:
+please help to clean the room
+:init:
+grest
+:init:
+heater 
+:init:
+turn left
+:init:
+play msuic
+:init:
+gogogogo
+:init:
+what is your availability in march?
+:init:
+midnight
+:init:
+turn on windshield
+:init:
+radio
+:init:
+which on the ac
+:init:
+turn off the wipers now -  they are damaged because its not raining
+:init:
+turn off lights
+:init:
+hiii
+:init:
+jazz is my favourite too
+:init:
+turn the ac on
+:init:
+stop the car please
+:init:
+next sunday
+:init:
+are there any motel?
+:init:
+hi -  could you find me the nearest restaurants
+:init:
+i like music
+:init:
+nearest restaurant is?
+:init:
+how about parks?
+:init:
+go west
+:init:
+whats amenities
+:init:
+i love the greek music
+:init:
+find resturants with light
+:init:
+it is rain
+:init:
+nearest 
+:init:
+how is weather today?
+:init:
+reply me
+:init:
+i can not hear
+:init:
+first
+:init:
+turn the sound on
+:init:
+nice drive?
+:init:
+airport restaurant in san francisco
+:init:
+where is the bathroom?
+:init:
+tell me
+:init:
+what operation you can perform ?
+:init:
+que bonito
+:init:
+lights
+:init:
+start lighs
+:init:
+my home.
+:init:
+where is food?
+:init:
+stop please the music
+:init:
+i want to eat thai food. something close by
+:init:
+move to the right side of the road
+:init:
+let's go for a drive
+:init:
+jazz is pl
+:init:
+ac on
+:init:
+can you play rock music ?
+:init:
+papsta
+:init:
+ok -  restaurants
+:init:
+zjsjsjsjsnznshhejeiwuuuew
+:init:
+can you stop driving
+:init:
+can you play me some music
+:init:
+where is the nearest jollibee
+:init:
+turn on heater
+:init:
+change it to something else
+:init:
+turn on the light 
+:init:
+new wave
+:init:
+paedon
+:init:
+speed down
+:init:
+thaks
+:init:
+play video please.
+:init:
+ok  take me to gazebo
+:init:
+where is john
+:init:
+turn on air conditioning
+:init:
+thank you.
+:init:
+do you like music?
+:init:
+how's the weather in ny?
+:init:
+ok play some music
+:init:
+what is the artist of the song let it be?
+:init:
+please stop 
+:init:
+6:00 PM
+:init:
+that one
+:init:
+hip hip
+:init:
+turn off the lights  i need to focus on driving.
+:init:
+today 4pm
+:init:
+faster wipers4
+:init:
+honk the horn
+:init:
+please drive 
+:init:
+pleas have some music
+:init:
+hola
+:init:
+get me some dinner
+:init:
+do you know google assistant?
+:init:
+hii good morning
+:init:
+can you assist me 
+:init:
+ok  go on jazz
+:init:
+where is home
+:init:
+dspdojk
+:init:
+paris
+:init:
+turn of windshield wipers
+:init:
+turn on the wipers.
+:init:
+where is beach
+:init:
+trun off the lights
+:init:
+whats speed
+:init:
+what's rock?
+:init:
+put jazz music
+:init:
+show whats nearby
+:init:
+wherer are you
+:init:
+the closest!
+:init:
+pls tune on the light
+:init:
+turn on the wipers 
+:init:
+tell me a joke please
+:init:
+do something
+:init:
+how can i build my web site?
+:init:
+find nearby gas stations
