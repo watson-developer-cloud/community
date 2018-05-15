@@ -298,7 +298,3 @@ Sometimes you need a quick way to simulate a user and call the /message API with
     ./generate_chat_logs.py <username> <password> <workspace ID> <utterances-for-generate-chat-logs.csv> --url <URL to Conversation API> 
      
 You can run generate_chat_logs.py --help for a description of all the input parameters.
-
-## Banking demo example <a id=banking-workspace></a>
-#### Description
-[Example workspace](banking-demo.json) showcases best practices for building out a workspace and different methods utilizing  the many of the features above- slots, digressions, multiple intents,etc. This example workspace is a banking use case, focusing on credit cards. 
