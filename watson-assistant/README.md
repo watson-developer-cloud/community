@@ -26,6 +26,9 @@
 **Generating utterances and conversation logs through a script**
 - [Use a script to generate test utterances and simulate a user](#generate-chat-logs)
 
+**Banking demo example**
+- [Example Workspace](#banking-workspace)
+
 ## Ordering pizza
 
 ### Basic example <a id="ordering-pizza-basic"></a>
