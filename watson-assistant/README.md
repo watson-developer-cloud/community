@@ -298,3 +298,8 @@ Sometimes you need a quick way to simulate a user and call the /message API with
     ./generate_chat_logs.py <username> <password> <workspace ID> <utterances-for-generate-chat-logs.csv> --url <URL to Conversation API> 
      
 You can run generate_chat_logs.py --help for a description of all the input parameters.
+
+## IBM Watson Assistant for IBM Cloud Private version 1.0.0 documentation
+{: #icp-pdf}
+
+The `assistant-icp-100.pdf` file contains a cut of the product documentation at the time that IBM Watson Assistant version 1.0.0 was made available in the private cloud environment.
