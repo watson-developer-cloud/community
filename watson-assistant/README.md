@@ -29,6 +29,9 @@
 **Banking demo example**
 - [Example Workspace](#banking-workspace)
 
+**Logs exporter**
+- [Logs Python script](#logs-exporter)
+
 ## Ordering pizza
 
 ### Basic example <a id="ordering-pizza-basic"></a>
@@ -298,6 +301,11 @@ Sometimes you need a quick way to simulate a user and call the /message API with
     ./generate_chat_logs.py <username> <password> <workspace ID> <utterances-for-generate-chat-logs.csv> --url <URL to Conversation API> 
      
 You can run generate_chat_logs.py --help for a description of all the input parameters.
+
+## Logs Python script
+{: #logs-exporter}
+
+The `export_logs.py` file is a Python script that you can use to export logs from a workspace, and convert them into CSV format.
 
 ## IBM Watson Assistant for IBM Cloud Private version 1.0.0 documentation
 {: #icp-pdf}
