@@ -126,7 +126,7 @@ Slots variable can be a simple type of an array.
 
 #### Description
 
-[Ordering pizza - confirmation](pizza-confirm.json) demonstrates a confirmation at the end of ordering a pizza. A separate slot (pizza_confirmed) is introduced as the last slot of the node. The prompt summarizes the values taht are filled so far and requests confirmation before leaving the node. Users can correct previously filled slots, confirm that all slots are correct, or cancel and leave the slot without performing an action.
+[Ordering pizza - confirmation](pizza-confirm.json) demonstrates a confirmation at the end of ordering a pizza. A separate slot (pizza_confirmed) is introduced as the last slot of the node. The prompt summarizes the values that are filled so far and requests confirmation before leaving the node. Users can correct previously filled slots, confirm that all slots are correct, or cancel and leave the slot without performing an action.
 
 #### Features demonstrated
 
