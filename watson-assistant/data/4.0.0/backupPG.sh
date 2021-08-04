@@ -41,9 +41,11 @@ USERNAME=
 INSTANCE=
 USER_CLI=
 CLI=kubectl
+SHORT_INSTANCE=wa
 
 #Change this var to pass extra arguments to the pg_dump command
 PGDUMP_ARGS="-Fc"
+SHORT_INSTANCE="$( cut -d '-' -f 1 <<< "$SHORT_INSTANCE" )"
 
 function die() {
   echo "$@" 1>&2
@@ -55,7 +57,7 @@ function showHelp() {
   echo "Usage backupPG.sh [--instance INSTANCE] [--cli kubectl | oc]"
   echo "Script runs pg_dump command against store db."
   echo ""
-  echo "--instance: The instance of the WA deployment you want to backup"
+  echo "--instance: The instance of the WA deployment you want to backup. The default is wa."
   echo "--cli:      The cli to use. You can specify kubectl or oc. The default is kubectl."
   echo
 }
@@ -63,6 +65,15 @@ function showHelp() {
 #############################
 # Processing command-line parameters
 #############################
+if [ "$#" -eq 0 ]; then
+ echo "Instance not specified, defaulting to ‘wa’" 1>&2
+fi
+if [ "$#" -eq 2 ]; then
+    if [[ $1 == -c ]] || [[ $1 == --c ]] || [[ $1 == --cli ]]; then
+        echo "Instance not specified, defaulting to ‘wa’" 1>&2
+    fi
+fi
+
 while (( $# > 0 )); do
   case "$1" in
     -i | --i | --instance )
@@ -71,8 +82,8 @@ while (( $# > 0 )); do
         die "ERROR: --instance argument has no value"
       fi
       shift
-      SHORT_INSTANCE="$1"
-      INSTANCE=",app.kubernetes.io/instance=$1"
+      INSTANCE=",app.kubernetes.io/instance=$option"
+      SHORT_INSTANCE=$option
       ;;
     -c | --c | --cli )
       option=${2:-}
@@ -144,7 +155,7 @@ fi
 #################
 #Fetch a running Postgres Keeper Pod
 KEEPER_POD=$($CLI get pods --field-selector=status.phase=Running -l postgresql=$SHORT_INSTANCE-postgres -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-rc=$?; [[ $rc != 0 ]] || [ -z "$KEEPER_POD" ] && die "ERROR: No postgres keeper pod found running."
+rc=$?; [[ $rc != 0 ]] || [ -z "$KEEPER_POD" ] && die "ERROR: No postgres keeper pod found running. Please check the instance parameter value."
 
 #Fetch the store vcap secret name
 VCAP_SECRET_NAME=$($CLI get secrets -l component=store${INSTANCE} -o=custom-columns=NAME:.metadata.name | grep store-vcap 2>/dev/null)
