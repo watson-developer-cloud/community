@@ -123,8 +123,15 @@ while IFS='|' read -r TENANT_ID INSTANCE_ID NAME REGION; do
     WXO_NAME="$NAME"
   fi
   
-  # Add to CSV (for orchestrate instances)
-  echo "${WXO_NAME},orchestrate,5.2.2" >> "${CSV_FILE}"
+  # Determine service type based on instance name
+  if [[ "$WXO_NAME" == "wxo-assistant-de" ]]; then
+    SERVICE_TYPE="assistant"
+  else
+    SERVICE_TYPE="orchestrate"
+  fi
+  
+  # Add to CSV
+  echo "${WXO_NAME},${SERVICE_TYPE},5.2.2" >> "${CSV_FILE}"
   
   # Add to JSON with metadata
   if [[ "$FIRST_ENTRY" == "true" ]]; then
