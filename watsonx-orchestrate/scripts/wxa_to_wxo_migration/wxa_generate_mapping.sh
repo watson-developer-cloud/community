@@ -1,7 +1,7 @@
-#!/bin/bash
+#!/bin/sh
 # Generate pgmig mapping file for wxA to wxO migration
 # Matches wxA instances to wxO instances by name
-set -euo pipefail
+set -eu
 
 print_help() {
   cat <<'EOF'
@@ -38,13 +38,13 @@ EOF
 }
 
 # Help
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   print_help
   exit 0
 fi
 
 # Args
-if [[ $# -lt 2 || $# -gt 3 ]]; then
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
   echo "Error: Invalid number of arguments."
   echo "Run with --help to see usage."
   exit 1
@@ -55,19 +55,19 @@ WXO_JSON="$2"
 OUTPUT_FILE="${3:-instance_mapping.yaml}"
 
 # Check if jq is installed
-if ! command -v jq &> /dev/null; then
+if ! command -v jq >/dev/null 2>&1; then
   echo "❌ Error: jq is required but not installed."
-  echo "Install with: brew install jq (macOS) or dnf install jq (RHEL)"
+  echo "Install with: yum install jq (RHEL) or dnf/apt/brew install jq (other platforms)"
   exit 2
 fi
 
 # Validate input files
-if [[ ! -f "$WXA_JSON" ]]; then
+if [ ! -f "$WXA_JSON" ]; then
   echo "❌ Error: wxA JSON file not found: $WXA_JSON"
   exit 3
 fi
 
-if [[ ! -f "$WXO_JSON" ]]; then
+if [ ! -f "$WXO_JSON" ]; then
   echo "❌ Error: wxO JSON file not found: $WXO_JSON"
   exit 4
 fi
@@ -78,10 +78,10 @@ echo "wxO instances: ${WXO_JSON}"
 echo "Output file: ${OUTPUT_FILE}"
 echo ""
 
-# Create YAML header
+# Create YAML header with portable date command
 cat > "${OUTPUT_FILE}" <<EOF
 # pgmig instance mapping file
-# Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+# Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
 # Format: wxa_instance_id: wxo_instance_id
 instance-mappings:
 EOF
@@ -89,37 +89,46 @@ EOF
 # Track statistics
 MAPPED_COUNT=0
 UNMAPPED_COUNT=0
-UNMAPPED_INSTANCES=()
+UNMAPPED_INSTANCES=""
+
+# Precompute wxA entries to avoid subshell issues
+WXA_ENTRIES_FILE="$(mktemp)"
+jq -c '.[]' "$WXA_JSON" > "$WXA_ENTRIES_FILE"
 
 # Read wxA instances and find matching wxO instances
-while read -r wxa_entry; do
+while IFS= read -r wxa_entry; do
   WXA_INSTANCE_ID=$(echo "$wxa_entry" | jq -r '.wxa_instance_id')
   WXA_NAME=$(echo "$wxa_entry" | jq -r '.wxo_name')
-  
+
   # Find matching wxO instance by name
-  WXO_INSTANCE_ID=$(jq -r --arg name "$WXA_NAME" '.[] | select(.name == $name) | .instance_id' "$WXO_JSON" | head -n1)
-  
-  if [[ -n "$WXO_INSTANCE_ID" && "$WXO_INSTANCE_ID" != "null" ]]; then
+  WXO_INSTANCE_ID=$(jq -r --arg name "$WXA_NAME" '.[] | select(.name == $name) | .instance_id' "$WXO_JSON" | head -n 1)
+
+  if [ -n "$WXO_INSTANCE_ID" ] && [ "$WXO_INSTANCE_ID" != "null" ]; then
     # Add mapping
     echo "  ${WXA_INSTANCE_ID}: ${WXO_INSTANCE_ID}" >> "${OUTPUT_FILE}"
     echo "✅ Mapped: ${WXA_NAME} (${WXA_INSTANCE_ID} -> ${WXO_INSTANCE_ID})"
-    ((MAPPED_COUNT++))
+    MAPPED_COUNT=$((MAPPED_COUNT + 1))
   else
     echo "⚠️  Unmapped: ${WXA_NAME} (${WXA_INSTANCE_ID}) - no matching wxO instance found"
-    UNMAPPED_INSTANCES+=("${WXA_NAME}")
-    ((UNMAPPED_COUNT++))
+    UNMAPPED_INSTANCES="${UNMAPPED_INSTANCES}${WXA_NAME}
+"
+    UNMAPPED_COUNT=$((UNMAPPED_COUNT + 1))
   fi
-done < <(jq -c '.[]' "$WXA_JSON")
+done < "$WXA_ENTRIES_FILE"
+
+rm -f "$WXA_ENTRIES_FILE"
 
 echo ""
 echo "=== Mapping Generation Complete ==="
 echo "✅ Successfully mapped: ${MAPPED_COUNT} instances"
-if [[ $UNMAPPED_COUNT -gt 0 ]]; then
+if [ "$UNMAPPED_COUNT" -gt 0 ]; then
   echo "⚠️  Unmapped instances: ${UNMAPPED_COUNT}"
   echo ""
   echo "Unmapped instances:"
-  for instance in "${UNMAPPED_INSTANCES[@]}"; do
-    echo "  - ${instance}"
+  printf '%s' "$UNMAPPED_INSTANCES" | while IFS= read -r instance; do
+    if [ -n "$instance" ]; then
+      echo "  - ${instance}"
+    fi
   done
   echo ""
   echo "⚠️  WARNING: Unmapped instances will need manual mapping during pgmig execution"
@@ -133,5 +142,4 @@ echo "  ./pgmig --resourceController resourceController.yaml \\"
 echo "          --target postgres.yaml \\"
 echo "          --source store.dump_YYYYMMDD-HHMMSS \\"
 echo "          --wxo --force -m ${OUTPUT_FILE}"
-
 
