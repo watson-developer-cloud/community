@@ -45,6 +45,7 @@ ASSUME_EDITION=""
 : "${CHECK_REDIS:=1}"
 : "${CHECK_WXD:=1}"
 : "${CHECK_OBC:=1}"
+: "${CHECK_JOBS:=1}"
 
 # ---------------------- Arg parsing -------------------------
 while [ $# -gt 0 ]; do
@@ -231,7 +232,7 @@ check_wo_pods() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   bad_found=0
   total_wo=0
-  echo "▶ Checking Orchestrate pods"
+  echo "▶ Checking Orchestrate pods (including Milvus)"
   tmp_list=`mktemp 2>/dev/null || echo "/tmp/wo_pods.$$"`
   tmp_bad=`mktemp 2>/dev/null || echo "/tmp/wo_bad.$$"`
   $OCN get pods --no-headers 2>/dev/null > "$tmp_list" || :
@@ -247,13 +248,13 @@ check_wo_pods() {
     age="$(printf '%s
 ' "$line" | awk '{print $NF}')"
     [ -z "$name" ] && continue
-    case "$name" in wo-*) : ;; *) continue ;; esac
+    case "$name" in wo-*|*milvus*) : ;; *) continue ;; esac
     total_wo=`expr "${total_wo:-0}" + 1`
     if [ "$status" = "Completed" ]; then continue; fi
     current=`echo "$ready" | awk -F/ '{print $1}'`
     total=`echo "$ready" | awk -F/ '{print $2}'`
     if [ "$status" = "Running" ] && [ "$current" = "$total" ]; then :; else
-      printf "   - %s	Ready=%s	Status=%s	Restarts=%s	Age=%s
+      printf "%s	%s	%s	%s	%s
 " "$name" "$ready" "$status" "${restarts:-?}" "${age:-?}" >> "$tmp_bad"
       bad_found=1
     fi
@@ -526,6 +527,78 @@ check_wxd_engines() {
   [ "${bad:-0}" -eq 0 ] && return 0 || return 1
 }
 
+check_jobs() {
+  OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+  
+  # Get jobs by labels: watson-orchestrate and watson-assistant
+  tmp_jobs=`mktemp 2>/dev/null || echo "/tmp/wo_jobs.$$"`
+  $OCN get jobs -l 'app.kubernetes.io/name in (watson-orchestrate,watson-assistant)' --no-headers 2>/dev/null > "$tmp_jobs" || :
+  
+  if [ ! -s "$tmp_jobs" ]; then
+    echo "ℹ️ No Orchestrate/Assistant jobs found, skipping"
+    rm -f "$tmp_jobs"
+    return 0
+  fi
+  
+  bad=0
+  failed_jobs=""
+  incomplete_jobs=""
+  checked_count=0
+  
+  while IFS= read -r line; do
+    name="$(printf '%s\n' "$line" | awk '{print $1}')"
+    age="$(printf '%s\n' "$line" | awk '{print $4}')"
+    [ -z "$name" ] && continue
+    
+    # Skip jobs created by cronjobs (contain "cronjob" in name)
+    echo "$name" | grep -qi "cronjob" && continue
+    
+    # Skip specific job: wo-wa-create-slot-job
+    [ "$name" = "wo-wa-create-slot-job" ] && continue
+    
+    # Check if job is owned by a CronJob
+    owner_kind=`$OCN get job "$name" -o jsonpath='{.metadata.ownerReferences[0].kind}' 2>/dev/null || :`
+    [ "$owner_kind" = "CronJob" ] && continue
+    
+    checked_count=`expr "${checked_count:-0}" + 1`
+    
+    # Check job status - both Failed and Complete conditions
+    failed=`$OCN get job "$name" -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}' 2>/dev/null || :`
+    completed=`$OCN get job "$name" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' 2>/dev/null || :`
+    
+    if [ "$failed" = "True" ]; then
+      failed_jobs="${failed_jobs}
+   - $name (Age: $age) - FAILED"
+      bad=1
+    elif [ "$completed" != "True" ]; then
+      incomplete_jobs="${incomplete_jobs}
+   - $name (Age: $age) - INCOMPLETE/RUNNING"
+      bad=1
+    fi
+  done < "$tmp_jobs"
+  
+  if [ "${checked_count:-0}" -eq 0 ]; then
+    echo "ℹ️ No non-cronjob Orchestrate/Assistant jobs found (cronjobs excluded)"
+    rm -f "$tmp_jobs"
+    return 0
+  fi
+  
+  if [ "$bad" -eq 0 ]; then
+    echo "✅ All Orchestrate/Assistant jobs completed successfully ($checked_count jobs checked)"
+  else
+    echo "❌ Some Orchestrate/Assistant jobs have issues:"
+    if [ -n "$failed_jobs" ]; then
+      echo "$failed_jobs"
+    fi
+    if [ -n "$incomplete_jobs" ]; then
+      echo "$incomplete_jobs"
+    fi
+  fi
+  
+  rm -f "$tmp_jobs"
+  [ "$bad" -eq 0 ] && return 0 || return 1
+}
+
 # --------------------- Main retry loop ----------------------
 resolve_namespaces
 detect_wxo_edition
@@ -538,9 +611,12 @@ while [ "$TRY" -le "$MAX_TRIES" ]; do
 
   pods_ok=0; wo_cr_ok=0; wocs_ok=0; wa_cr_ok=0; ifm_cr_ok=0
   docproc_ok=0; de_ok=0; uab_ok=0
-  edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0
+  edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0; jobs_ok=0
 
   if [ "${CHECK_WO_PODS:-1}" -eq 1 ]; then pods_ok=1; if check_wo_pods; then pods_ok=0; fi; fi
+
+  section "Checking Orchestrate Jobs"
+  if [ "${CHECK_JOBS:-1}" -eq 1 ]; then jobs_ok=1; if check_jobs; then jobs_ok=0; fi; fi
 
   section "Checking Orchestrate and supporting Custom Resources"
   if [ "${CHECK_WO_CR:-1}"  -eq 1 ]; then wo_cr_ok=1; if check_wo_cr; then wo_cr_ok=0; fi; fi
@@ -622,13 +698,14 @@ check_obc() {
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
-  if [ "${CHECK_OBC:-1}"   -eq 1 ]; then obc_ok=1;   if check_obc; then obc_ok=0; fi; fi
-  if [ "${CHECK_WXD:-1}"   -eq 1 ]; then wxd_ok=1;   if check_wxd_engines; then wxd_ok=0; fi; fi
+  if [ "${CHECK_OBC:-1}"  -eq 1 ]; then obc_ok=1;  if check_obc; then obc_ok=0; fi; fi
+  if [ "${CHECK_WXD:-1}"  -eq 1 ]; then wxd_ok=1;  if check_wxd_engines; then wxd_ok=0; fi; fi
 
   if [ "$pods_ok" -eq 0 ] && [ "$wo_cr_ok" -eq 0 ] && [ "$wocs_ok" -eq 0 ] \
      && [ "$wa_cr_ok" -eq 0 ] && [ "$ifm_cr_ok" -eq 0 ] \
      && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
-     && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ]; then
+     && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
+     && [ "$jobs_ok" -eq 0 ]; then
     echo "🎉 All enabled checks passed on attempt $TRY. Orchestrate is healthy."
     exit 0
   fi
