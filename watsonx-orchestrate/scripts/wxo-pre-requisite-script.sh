@@ -6,8 +6,7 @@
 #              installation.
 #
 # Authors: Amal Paul, Manu Thapar
-# Version: 1.0.0
-# License: IBM Internal Use
+# Version: 1.1.0
 #
 # Documentation References:
 #   - IBM Software Hub 5.3.x: https://www.ibm.com/docs/en/software-hub/5.3.x
@@ -22,7 +21,10 @@
 # Options:
 #   --operator-ns <namespace>      CPD operators namespace (optional, default: auto-detect or cpd-operators)
 #   --operand-ns <namespace>       CPD operands namespace (optional, default: auto-detect or cpd-instance-1)
-#   --installation-type <type>     Installation type: agentic, agentic_assistant, agentic_skills_assistant (required)
+#   --version <version>            Watson Orchestrate version (required, e.g., 5.3.0, 5.3.1, 5.3.2, etc.)
+#   --installation-type <type>     Installation type (required)
+#                                  For version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant
+#                                  For version >= 5.3.1: agentic, agentic_assistant
 #   --internal-ifm <true|false>    Internal IFM flag (required)
 #   -h, --help                     Display this help message
 #
@@ -63,6 +65,7 @@ PROJECT_CPD_INST_OPERANDS="${PROJECT_CPD_INST_OPERANDS:-cpd-instance-1}"
 PROJECT_IBM_EVENTS="${PROJECT_IBM_EVENTS:-ibm-knative-events}"
 
 # Installation configuration variables
+VERSION=""
 INSTALLATION_TYPE=""
 INTERNAL_IFM=""
 
@@ -106,21 +109,32 @@ Usage: $0 [OPTIONS]
 Options:
   --operator-ns <namespace>      CPD operators namespace (optional, default: auto-detect or cpd-operators)
   --operand-ns <namespace>       CPD operands namespace (optional, default: auto-detect or cpd-instance-1)
+  --version <version>            Watson Orchestrate version (required, e.g., 5.3.0, 5.3.1, 5.3.2, etc.)
   --installation-type <type>     Installation type (required)
-                                 Valid values: agentic, agentic_assistant, agentic_skills_assistant
+                                 For version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant
+                                 For version >= 5.3.1: agentic, agentic_assistant
   --internal-ifm <true|false>    Internal IFM flag (required)
   -h, --help                     Display this help message
 
 Examples:
-  # Basic usage with required parameters
-  $0 --installation-type agentic --internal-ifm true
+  # Basic usage with required parameters (version 5.3.0)
+  $0 --version 5.3.0 --installation-type agentic --internal-ifm true
+
+  # Version 5.3.0 with agentic_skills_assistant
+  $0 --version 5.3.0 --installation-type agentic_skills_assistant --internal-ifm true
+
+  # Version 5.3.1 or later (agentic_skills_assistant not available)
+  $0 --version 5.3.1 --installation-type agentic_assistant --internal-ifm false
+
+  # Version 5.3.2 or later
+  $0 --version 5.3.2 --installation-type agentic --internal-ifm true
 
   # Specify custom namespaces
-  $0 --operator-ns my-operators --operand-ns my-operands --installation-type agentic_assistant --internal-ifm false
+  $0 --operator-ns my-operators --operand-ns my-operands --version 5.3.1 --installation-type agentic --internal-ifm false
 
   # Using environment variables
   PROJECT_CPD_INST_OPERATORS=my-operators PROJECT_CPD_INST_OPERANDS=my-operands \\
-    $0 --installation-type agentic_skills_assistant --internal-ifm true
+    $0 --version 5.3.0 --installation-type agentic_skills_assistant --internal-ifm true
 
 Environment Variables:
   PROJECT_CPD_INST_OPERATORS     CPD operators namespace (overridden by --operator-ns)
@@ -717,6 +731,10 @@ parse_arguments() {
                 PROJECT_CPD_INST_OPERANDS="$2"
                 shift 2
                 ;;
+            --version)
+                VERSION="$2"
+                shift 2
+                ;;
             --installation-type)
                 INSTALLATION_TYPE="$2"
                 shift 2
@@ -736,14 +754,21 @@ parse_arguments() {
     done
     
     # Validate required parameters
-    if [ -z "$INSTALLATION_TYPE" ] && [ -z "$INTERNAL_IFM" ]; then
-        log_error "Missing required parameters: --installation-type and --internal-ifm"
-        log_error "  --installation-type: agentic, agentic_assistant, agentic_skills_assistant"
+    if [ -z "$VERSION" ] && [ -z "$INSTALLATION_TYPE" ] && [ -z "$INTERNAL_IFM" ]; then
+        log_error "Missing required parameters: --version, --installation-type, and --internal-ifm"
+        log_error "  --version: 5.3.0, 5.3.1, 5.3.2, or later 5.3.x versions"
+        log_error "  --installation-type: agentic, agentic_assistant, agentic_skills_assistant (5.3.0 only)"
         log_error "  --internal-ifm: true, false"
+        exit 1
+    elif [ -z "$VERSION" ]; then
+        log_error "Missing required parameter: --version"
+        log_error "Valid values: 5.3.0, 5.3.1, 5.3.2, or later 5.3.x versions"
         exit 1
     elif [ -z "$INSTALLATION_TYPE" ]; then
         log_error "Missing required parameter: --installation-type"
-        log_error "Valid values: agentic, agentic_assistant, agentic_skills_assistant"
+        log_error "Valid values depend on version:"
+        log_error "  Version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant"
+        log_error "  Version >= 5.3.1: agentic, agentic_assistant"
         exit 1
     elif [ -z "$INTERNAL_IFM" ]; then
         log_error "Missing required parameter: --internal-ifm"
@@ -751,16 +776,88 @@ parse_arguments() {
         exit 1
     fi
     
-    # Validate installation type
-    case "$INSTALLATION_TYPE" in
-        agentic|agentic_assistant|agentic_skills_assistant)
-            ;;
-        *)
-            log_error "Invalid installation type: $INSTALLATION_TYPE"
-            log_error "Valid values: agentic, agentic_assistant, agentic_skills_assistant"
-            exit 1
-            ;;
-    esac
+    # Validate version format (basic check)
+    if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        log_error "Invalid version format: $VERSION"
+        log_error "Expected format: X.Y.Z (e.g., 5.3.0, 5.3.1)"
+        exit 1
+    fi
+    
+    # Version comparison function
+    version_compare() {
+        # Returns 0 if $1 >= $2, 1 otherwise
+        local ver1=$1
+        local ver2=$2
+        
+        # Split versions into components
+        local v1_major=$(echo "$ver1" | cut -d. -f1)
+        local v1_minor=$(echo "$ver1" | cut -d. -f2)
+        local v1_patch=$(echo "$ver1" | cut -d. -f3)
+        
+        local v2_major=$(echo "$ver2" | cut -d. -f1)
+        local v2_minor=$(echo "$ver2" | cut -d. -f2)
+        local v2_patch=$(echo "$ver2" | cut -d. -f3)
+        
+        # Compare major version
+        if [ "$v1_major" -gt "$v2_major" ]; then
+            return 0
+        elif [ "$v1_major" -lt "$v2_major" ]; then
+            return 1
+        fi
+        
+        # Compare minor version
+        if [ "$v1_minor" -gt "$v2_minor" ]; then
+            return 0
+        elif [ "$v1_minor" -lt "$v2_minor" ]; then
+            return 1
+        fi
+        
+        # Compare patch version
+        if [ "$v1_patch" -ge "$v2_patch" ]; then
+            return 0
+        else
+            return 1
+        fi
+    }
+    
+    # Check if version is less than 5.3.0 (must be after version_compare function definition)
+    if ! version_compare "$VERSION" "5.3.0"; then
+        log_error "Unsupported version: $VERSION"
+        log_error "Watson Orchestrate version must be 5.3.0 or higher"
+        log_error "This script supports versions 5.3.0 and above"
+        exit 1
+    fi
+    
+    # Validate installation type based on version
+    if version_compare "$VERSION" "5.3.1"; then
+        # Version >= 5.3.1: agentic_skills_assistant is NOT available
+        case "$INSTALLATION_TYPE" in
+            agentic|agentic_assistant)
+                ;;
+            agentic_skills_assistant)
+                log_error "Invalid installation type for version $VERSION: $INSTALLATION_TYPE"
+                log_error "The 'agentic_skills_assistant' installation type is only available in version 5.3.0"
+                log_error "Valid values for version >= 5.3.1: agentic, agentic_assistant"
+                exit 1
+                ;;
+            *)
+                log_error "Invalid installation type: $INSTALLATION_TYPE"
+                log_error "Valid values for version >= 5.3.1: agentic, agentic_assistant"
+                exit 1
+                ;;
+        esac
+    else
+        # Version 5.3.0: all installation types are available
+        case "$INSTALLATION_TYPE" in
+            agentic|agentic_assistant|agentic_skills_assistant)
+                ;;
+            *)
+                log_error "Invalid installation type: $INSTALLATION_TYPE"
+                log_error "Valid values for version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant"
+                exit 1
+                ;;
+        esac
+    fi
     
     # Validate internal_ifm
     case "$INTERNAL_IFM" in
@@ -795,6 +892,7 @@ main() {
     log_info "Log file: $LOG_FILE"
     log ""
     log_info "Configurations:"
+    log_info "   Watson Orchestrate Version: $VERSION"
     log_info "   Operator Namespace: $PROJECT_CPD_INST_OPERATORS"
     log_info "   Operand Namespace: $PROJECT_CPD_INST_OPERANDS"
     log_info "   Installation Type: $INSTALLATION_TYPE"
