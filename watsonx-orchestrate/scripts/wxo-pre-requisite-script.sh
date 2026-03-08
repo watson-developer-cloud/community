@@ -913,7 +913,12 @@ main() {
     fi
     
     check_mcg_storage
-    check_knative_eventing
+    
+    # Skip Knative Eventing check for 'agentic' installation type
+    if [ "$INSTALLATION_TYPE" != "agentic" ]; then
+        check_knative_eventing
+    fi
+    
     check_watson_assistant_standalone
     
     # Print summary
