@@ -107,7 +107,10 @@ mkdir -p failed.*matplotlib
 Fontconfig error.*writable cache
 Timeout on acquiring lock.*leader.lock
 sasl\.login\.read\.timeout\.ms
+sasl\.login\.connect\.timeout\.ms
 socket\.connection\.setup\.timeout
+default\.api\.timeout\.ms
+request\.timeout\.ms
 instana-agent.*Metadata update failed
 Timed out waiting for a node assignment.*fetchMetadata
 No pods or no unique pods available to load
