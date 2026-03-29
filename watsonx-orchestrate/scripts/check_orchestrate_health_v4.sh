@@ -1674,12 +1674,61 @@ check_and_fix_milvus_etcd() {
     echo
   fi
   
-  # Step 3: Defragment
+  # Step 3: Defragment (with live size tracking)
   echo "  3️⃣  Defragmenting etcd database (this may take up to 5 minutes)..."
-  if $OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s defrag' 2>&1; then
+  
+  # Get database size before defrag
+  echo "  📊 Checking database size before defragmentation..."
+  db_size_before=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
+  if [ -n "$db_size_before" ]; then
+    echo "     Database size before: $db_size_before"
+  else
+    echo "     (Unable to check size - may be inaccessible due to NOSPACE)"
+  fi
+  
+  # Run defragmentation in background with progress monitoring
+  echo "  🔧 Running defragmentation with live progress monitoring..."
+  
+  # Create temp file for defrag output
+  defrag_log=$(mktemp 2>/dev/null || echo "/tmp/defrag_log.$$")
+  
+  # Start defrag in background
+  ($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s defrag' > "$defrag_log" 2>&1) &
+  defrag_pid=$!
+  
+  # Monitor progress while defrag is running
+  echo "     Monitoring database size during defragmentation..."
+  monitor_count=0
+  while kill -0 $defrag_pid 2>/dev/null; do
+    sleep 10
+    monitor_count=$((monitor_count + 1))
+    current_size=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
+    if [ -n "$current_size" ]; then
+      echo "     [${monitor_count}0s] Current size: $current_size"
+    fi
+  done
+  
+  # Wait for defrag to complete and get exit code
+  wait $defrag_pid
+  defrag_exit=$?
+  defrag_output=$(cat "$defrag_log" 2>/dev/null)
+  rm -f "$defrag_log"
+  
+  if [ $defrag_exit -eq 0 ]; then
     echo "  ✅ Defragmentation completed successfully"
+    
+    # Get final database size
+    sleep 2  # Brief pause to let filesystem update
+    db_size_after=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
+    if [ -n "$db_size_after" ]; then
+      echo "     📊 Final database size: $db_size_after"
+      if [ -n "$db_size_before" ]; then
+        echo "     ✨ Space reclaimed: $db_size_before → $db_size_after"
+      fi
+    fi
   else
     echo "  ❌ Defragmentation failed"
+    echo "     Output: $defrag_output"
     return 1
   fi
   echo
