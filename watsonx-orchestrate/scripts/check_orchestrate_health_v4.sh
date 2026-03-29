@@ -1631,24 +1631,35 @@ check_and_fix_milvus_etcd() {
   echo "  🔧 Fixing etcd database space issue..."
   echo
   
-  # Step 1: Get current revision
+  # Step 1: Get current revision (with fallback)
   echo "  1️⃣  Getting current etcd revision..."
   revision=$($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl endpoint status --write-out=json' 2>/dev/null | jq -r '.[0].Status.header.revision' 2>/dev/null)
   
   if [ -z "$revision" ] || [ "$revision" = "null" ]; then
-    echo "  ❌ Failed to get etcd revision"
-    return 1
+    echo "  ⚠️  Cannot get revision (etcd may be unresponsive due to NOSPACE)"
+    echo "  ℹ️  Using fallback: will compact to a very high revision number"
+    # Use a very high revision number - etcd will compact up to current revision
+    revision="999999999"
+  else
+    echo "  ✅ Current revision: $revision"
   fi
-  
-  echo "  ✅ Current revision: $revision"
   echo
   
   # Step 2: Compact
   echo "  2️⃣  Compacting etcd database to revision $revision..."
-  if $OCN exec "$etcd_pod" -- sh -lc "ETCDCTL_API=3 etcdctl compact $revision" 2>&1; then
+  compact_output=$($OCN exec "$etcd_pod" -- sh -lc "ETCDCTL_API=3 etcdctl compact $revision" 2>&1)
+  compact_exit=$?
+  
+  if [ $compact_exit -eq 0 ]; then
     echo "  ✅ Compaction completed successfully"
   else
-    echo "  ⚠️  Compaction may have failed or was already done"
+    # Check if it's just because revision is too high (which is OK)
+    if echo "$compact_output" | grep -q "required revision has been compacted"; then
+      echo "  ✅ Database already compacted (this is OK)"
+    else
+      echo "  ⚠️  Compaction output: $compact_output"
+      echo "  ℹ️  Continuing with defragmentation anyway..."
+    fi
   fi
   echo
   
