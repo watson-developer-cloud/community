@@ -2388,6 +2388,24 @@ print_header
 
 # Run troubleshoot mode if enabled - run troubleshoot + full health check in each cycle until healthy
 if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
+  echo
+  echo "=========================================="
+  echo "⚠️  TROUBLESHOOT MODE WARNING"
+  echo "=========================================="
+  echo "Troubleshoot mode performs advanced diagnostic and remediation operations"
+  echo "that may impact your running environment. This mode should ONLY be used:"
+  echo ""
+  echo "  • When working directly with IBM Support"
+  echo "  • At the explicit recommendation of IBM Support personnel"
+  echo "  • Under the guidance of qualified technical support staff"
+  echo ""
+  echo "Do NOT use troubleshoot mode for routine health checks or without"
+  echo "proper authorization and supervision from IBM Support."
+  echo "=========================================="
+  echo ""
+  read -p "Press Enter to continue or Ctrl+C to cancel..." </dev/tty
+  echo ""
+  
   TRY=1
   while [ "$TRY" -le "$MAX_TRIES" ]; do
     echo
