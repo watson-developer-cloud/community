@@ -913,6 +913,8 @@ check_edb_clusters() {
     instances=`$OCN get clusters.postgresql.k8s.enterprisedb.io "$n" -o jsonpath='{.status.instances}' 2>/dev/null || :`
     ready=`$OCN get clusters.postgresql.k8s.enterprisedb.io "$n" -o jsonpath='{.status.readyInstances}' 2>/dev/null || :`
     status_text=`$OCN get clusters.postgresql.k8s.enterprisedb.io "$n" -o jsonpath='{.status.phase}' 2>/dev/null || :`
+    # Get the current primary pod
+    primary_pod=`$OCN get clusters.postgresql.k8s.enterprisedb.io "$n" -o jsonpath='{.status.currentPrimary}' 2>/dev/null || :`
     if [ -z "$instances" ] || [ -z "$ready" ]; then
       set -- `$OCN get clusters.postgresql.k8s.enterprisedb.io "$n" --no-headers 2>/dev/null | awk '{print $2, $3, $4, $5, $6}'`
       inst_col="${1:-}"; ready_col="${2:-}"; stat_col="${3:-}"
@@ -925,9 +927,17 @@ check_edb_clusters() {
       echo "❌ EDB cluster $n: could not determine Instances or Ready counts"
       bad=1
     elif [ "$ready" = "$instances" ] && [ "$healthy_phase" -eq 1 ]; then
-      echo "✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text"
+      if [ -n "$primary_pod" ]; then
+        echo "✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text, Master=$primary_pod"
+      else
+        echo "✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text"
+      fi
     else
-      echo "❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}"
+      if [ -n "$primary_pod" ]; then
+        echo "❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}, Master=$primary_pod"
+      else
+        echo "❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}"
+      fi
       bad=1
     fi
   done
