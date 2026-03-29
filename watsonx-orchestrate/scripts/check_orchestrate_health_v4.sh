@@ -1409,12 +1409,22 @@ delete_pod() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   
   echo "  🗑️  Deleting pod: $pod_name"
-  $OCN delete pod "$pod_name" --grace-period=30 2>&1
   
-  if [ $? -eq 0 ]; then
+  # Try to delete pod, capture output and exit code
+  delete_output=$($OCN delete pod "$pod_name" --grace-period=30 2>&1) || delete_exit_code=$?
+  
+  if [ "${delete_exit_code:-0}" -eq 0 ]; then
+    echo "$delete_output"
     echo "  ✅ Pod deleted successfully"
   else
-    echo "  ❌ Failed to delete pod"
+    # Check if pod was already deleted (NotFound error)
+    if echo "$delete_output" | grep -q "NotFound"; then
+      echo "$delete_output"
+      echo "  ℹ️  Pod already deleted or not found (this is OK)"
+    else
+      echo "$delete_output"
+      echo "  ❌ Failed to delete pod"
+    fi
   fi
 }
 list_recent_errors_all_pods() {
