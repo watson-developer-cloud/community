@@ -86,9 +86,13 @@ ASSUME_EDITION=""
 : "${CHECK_WXD:=1}"
 : "${CHECK_OBC:=1}"
 : "${CHECK_JOBS:=1}"
+: "${CHECK_KNATIVE_EVENTING:=1}"
 
 # Troubleshoot mode - disabled by default
 : "${TROUBLESHOOT_MODE:=0}"
+# Debug mode - disabled by default
+: "${DEBUG_MODE:=0}"
+: "${USER_INPUT_TIMEOUT:=10}"  # Timeout in seconds for user input prompts
 
 # ---------------------- Arg parsing -------------------------
 while [ $# -gt 0 ]; do
@@ -97,6 +101,7 @@ while [ $# -gt 0 ]; do
     --assume-agentic)  ASSUME_EDITION="agentic"; shift 1 ;;
     --assume-agentic-skills)  ASSUME_EDITION="agentic_skills_assistant"; shift 1 ;;
     -t|--troubleshoot) TROUBLESHOOT_MODE=1; shift 1 ;;
+    -d|--debug) DEBUG_MODE=1; shift 1 ;;
     -h|--help) sed -n '1,220p' "$0"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -499,7 +504,159 @@ check_wa_cr() {
     return 0
   else
     echo "❌ watsonx Assistant ($wa_name): Ready=$wa_ready, Status=$wa_status, Progress=$wa_progress"
+    
+    # For agentic_assistant edition in health check mode, check waall resources
+    if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] && [ "${TROUBLESHOOT_MODE:-0}" -eq 0 ]; then
+      check_waall_resources
+    fi
     return 1
+  fi
+}
+
+check_waall_resources() {
+  echo "  📋 Checking WatsonAssistantAll (waall) resources..."
+  waall_status=`$OC -n $PROJECT_CPD_INST_OPERANDS get waall --no-headers 2>/dev/null` || :
+  if [ -n "$waall_status" ]; then
+    echo "$waall_status" | while read -r line; do
+      echo "     $line"
+    done
+  else
+    echo "  ⚠️  No waall resources found"
+  fi
+}
+
+check_wa_operator_verification() {
+  echo ""
+  echo "  🔍 Checking Watson Assistant operator verification status..."
+  
+  # Check waall resources first
+  check_waall_resources
+  
+  # Check if assistant operator is running
+  OC_OPS="$OC -n ${PROJECT_CPD_INST_OPERATORS:-cpd-operators}"
+  
+  # Try multiple label patterns to find the operator pod
+  operator_pod=`$OC_OPS get pods -l app.kubernetes.io/name=ibm-watson-assistant-operator --no-headers 2>/dev/null | grep Running | awk '{print $1}' | head -1` || :
+  
+  if [ -z "$operator_pod" ]; then
+    operator_pod=`$OC_OPS get pods -l name=ibm-watson-assistant-operator --no-headers 2>/dev/null | grep Running | awk '{print $1}' | head -1` || :
+  fi
+  
+  if [ -z "$operator_pod" ]; then
+    operator_pod=`$OC_OPS get pods --no-headers 2>/dev/null | grep -i 'watson-assistant.*operator' | grep Running | awk '{print $1}' | head -1` || :
+  fi
+  
+  if [ -z "$operator_pod" ]; then
+    echo "  ⚠️  Watson Assistant operator pod not found or not running in ${PROJECT_CPD_INST_OPERATORS:-cpd-operators}"
+    echo "  💡 Tried searching for:"
+    echo "     - Pods with label app.kubernetes.io/name=ibm-watson-assistant-operator"
+    echo "     - Pods with label name=ibm-watson-assistant-operator"
+    echo "     - Pods matching pattern 'watson-assistant.*operator'"
+    return 1
+  fi
+  
+  echo "  📦 Operator pod: $operator_pod"
+  
+  # Check operator logs for verification status
+  echo ""
+  echo "  📄 Checking operator logs for rollout verification status..."
+  
+  # List log files in the operator pod
+  log_files=`$OC_OPS exec "$operator_pod" -- sh -c 'ls -1 *.1 *.log 2>/dev/null' 2>/dev/null` || :
+  
+  if [ -z "$log_files" ]; then
+    echo "  ⚠️  No log files (*.1 or *.log) found in operator pod"
+    return 1
+  fi
+  
+  echo "  📁 Found log files:"
+  echo "$log_files" | while read -r logfile; do
+    echo "     - $logfile"
+  done
+  
+  # Check log files for verification status
+  unverified_found=false
+  echo ""
+  echo "  🔎 Analyzing rollout verification status..."
+  
+  # First check .log files, then .log.1 files
+  for logfile in `echo "$log_files" | grep '\.log$' | grep -v '\.log\.1$'`; do
+    [ -z "$logfile" ] && continue
+    
+    # Check if this log file has the Final rollout state
+    rollout_info=`$OC_OPS exec "$operator_pod" -- sh -c "grep -A 4 'Final rollout state:' '$logfile' 2>/dev/null | tail -5" 2>/dev/null` || :
+    
+    if [ -n "$rollout_info" ]; then
+      # Found in .log file, process it
+      process_rollout_info "$logfile" "$rollout_info"
+    else
+      # Not found in .log, check corresponding .log.1 file
+      log1_file="${logfile}.1"
+      if echo "$log_files" | grep -q "^${log1_file}$"; then
+        rollout_info=`$OC_OPS exec "$operator_pod" -- sh -c "grep -A 4 'Final rollout state:' '$log1_file' 2>/dev/null | tail -5" 2>/dev/null` || :
+        if [ -n "$rollout_info" ]; then
+          process_rollout_info "$log1_file" "$rollout_info"
+        fi
+      fi
+    fi
+  done
+  
+  if [ "$unverified_found" = "false" ]; then
+    echo "  ✅ All nodes verified successfully"
+  fi
+}
+
+process_rollout_info() {
+  local logfile="$1"
+  local rollout_info="$2"
+  
+  if [ -n "$rollout_info" ]; then
+    # Check if there are any unverified, failed, or unstarted nodes
+    unverified=`echo "$rollout_info" | grep "Unverified:" | sed 's/.*Unverified: //' | tr -d '[]'` || :
+    failed=`echo "$rollout_info" | grep "Failed:" | sed 's/.*Failed: //' | tr -d '[]'` || :
+    unstarted=`echo "$rollout_info" | grep "Unstarted:" | sed 's/.*Unstarted: //' | tr -d '[]'` || :
+    
+    if [ "$unverified" != "" ] || [ "$failed" != "" ] || [ "$unstarted" != "" ]; then
+      echo ""
+      echo "  ⚠️  Issues found in $logfile:"
+      echo "$rollout_info" | sed 's/^/     /'
+      unverified_found=true
+      
+      # Ask if user wants to see logs (redirect stdin from terminal)
+      echo ""
+      printf "  Would you like to see the full log for $logfile? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+      
+      if read -t $USER_INPUT_TIMEOUT show_logs </dev/tty 2>/dev/null; then
+        : # User provided input
+      else
+        show_logs="n"
+        echo
+        echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping log display..."
+      fi
+      
+      if [ "$show_logs" = "y" ] || [ "$show_logs" = "Y" ]; then
+        printf "  How many lines to display? [default: 50 in ${USER_INPUT_TIMEOUT}s]: "
+        
+        if read -t $USER_INPUT_TIMEOUT line_count </dev/tty 2>/dev/null; then
+          : # User provided input
+        else
+          line_count="50"
+          echo
+          echo "  ⏱️  No input received, using default 50 lines..."
+        fi
+        
+        # Validate line count
+        if ! echo "$line_count" | grep -qE '^[0-9]+$'; then
+          line_count="50"
+        fi
+        
+        echo ""
+        echo "  📄 Last $line_count lines of $logfile:"
+        echo "  ----------------------------------------"
+        $OC_OPS exec "$operator_pod" -- sh -c "tail -n $line_count '$logfile'" 2>/dev/null | sed 's/^/  /'
+        echo "  ----------------------------------------"
+      fi
+    fi
   fi
 }
 
@@ -767,6 +924,225 @@ check_jobs() {
 
 # -------------------- Troubleshoot Mode ---------------------
 
+# ---------------------- Knative Eventing Checks ----------------------
+check_knative_eventing_deployment() {
+  # Only print failures, return 0 for success, 1 for failure
+  OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+  
+  # Check OpenShift Serverless namespace and deployments
+  if ! $OC get namespace openshift-serverless >/dev/null 2>&1; then
+    echo "❌ OpenShift Serverless namespace not found"
+    return 1
+  fi
+  
+  bad=0
+  for dep in knative-openshift knative-openshift-ingress knative-operator-webhook; do
+    if ! $OC get deployment "$dep" -n openshift-serverless >/dev/null 2>&1; then
+      echo "❌ OpenShift Serverless deployment $dep not found"
+      bad=1
+      continue
+    fi
+    ready=$($OC get deployment "$dep" -n openshift-serverless -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    desired=$($OC get deployment "$dep" -n openshift-serverless -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    if [ "$ready" != "$desired" ] || [ "$ready" = "0" ]; then
+      echo "❌ OpenShift Serverless deployment $dep not ready ($ready/$desired replicas)"
+      bad=1
+    fi
+  done
+  
+  # Check Knative Eventing namespace
+  if ! $OC get namespace knative-eventing >/dev/null 2>&1; then
+    echo "❌ Knative Eventing namespace not found"
+    return 1
+  fi
+  
+  # Check KnativeEventing CR
+  if ! $OC get knativeeventings.operator.knative.dev knative-eventing -n knative-eventing >/dev/null 2>&1; then
+    echo "❌ KnativeEventing CR not found"
+    bad=1
+  else
+    ke_ready=$($OC get knativeeventings.operator.knative.dev knative-eventing -n knative-eventing -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+    if [ "$ke_ready" != "True" ]; then
+      echo "❌ KnativeEventing CR not ready (status: $ke_ready)"
+      bad=1
+    fi
+  fi
+  
+  # Check key Knative Eventing deployments
+  for dep in eventing-webhook eventing-controller; do
+    if ! $OC get deployment "$dep" -n knative-eventing >/dev/null 2>&1; then
+      echo "❌ Knative Eventing deployment $dep not found"
+      bad=1
+      continue
+    fi
+    ready=$($OC get deployment "$dep" -n knative-eventing -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    desired=$($OC get deployment "$dep" -n knative-eventing -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    if [ "$ready" != "$desired" ] || [ "$ready" = "0" ]; then
+      echo "❌ Knative Eventing deployment $dep not ready ($ready/$desired replicas)"
+      bad=1
+    fi
+  done
+  
+  [ "$bad" -eq 0 ] && return 0 || return 1
+}
+
+check_ibm_events_operator() {
+  # Check IBM Events Operator - only print failures
+  events_ns="ibm-knative-events"
+  
+  if ! $OC get namespace "$events_ns" >/dev/null 2>&1; then
+    echo "❌ IBM Events Operator namespace $events_ns not found"
+    return 1
+  fi
+  
+  bad=0
+  # Try different deployment names across releases
+  events_deploy=""
+  for dep_name in ibm-events-cluster-operator ibm-events-operator; do
+    if $OC get deployment "$dep_name" -n "$events_ns" >/dev/null 2>&1; then
+      events_deploy="$dep_name"
+      break
+    fi
+  done
+  
+  if [ -z "$events_deploy" ]; then
+    echo "❌ IBM Events Operator deployment not found in $events_ns"
+    return 1
+  fi
+  
+  ready=$($OC get deployment "$events_deploy" -n "$events_ns" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+  desired=$($OC get deployment "$events_deploy" -n "$events_ns" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+  [ "${DEBUG_MODE:-0}" -eq 1 ] && echo "    [DEBUG] Deployment $events_deploy: ready=$ready, desired=$desired"
+  if [ "$ready" != "$desired" ] || [ "$ready" = "0" ]; then
+    echo "❌ IBM Events Operator ($events_deploy) not ready ($ready/$desired replicas)"
+    bad=1
+  fi
+  
+  [ "$bad" -eq 0 ] && return 0 || return 1
+}
+
+check_kafka_cluster() {
+  # Check Kafka cluster - only print failures
+  bad=0
+  
+  if ! $OC get kafkas.ibmevents.ibm.com knative-eventing-kafka -n knative-eventing >/dev/null 2>&1; then
+    echo "❌ Kafka cluster 'knative-eventing-kafka' not found"
+    return 1
+  fi
+  
+  kafka_ready=$($OC get kafkas.ibmevents.ibm.com knative-eventing-kafka -n knative-eventing -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+  if [ "$kafka_ready" != "True" ]; then
+    echo "❌ Kafka cluster not ready (status: $kafka_ready)"
+    bad=1
+  fi
+  
+  # Check Kafka mode (ZooKeeper or KRaft)
+  kafka_api=$($OC get kafkas.ibmevents.ibm.com knative-eventing-kafka -n knative-eventing -o jsonpath='{.apiVersion}' 2>/dev/null || echo "")
+  
+  if [ "$kafka_api" = "ibmevents.ibm.com/v1beta2" ]; then
+    # ZooKeeper mode
+    zk_pods=$($OC get pods -n knative-eventing -l ibmevents.ibm.com/cluster=knative-eventing-kafka,ibmevents.ibm.com/name=knative-eventing-kafka-zookeeper --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+    if [ "$zk_pods" -lt 3 ]; then
+      echo "❌ Kafka ZooKeeper mode: only $zk_pods/3 ZooKeeper pods running"
+      bad=1
+    fi
+  else
+    # KRaft mode
+    nodepool_count=$($OC get kafkanodepools.ibmevents.ibm.com -n knative-eventing -l ibmevents.ibm.com/cluster=knative-eventing-kafka --no-headers 2>/dev/null | wc -l)
+    if [ "$nodepool_count" -lt 2 ]; then
+      echo "❌ Kafka KRaft mode: only $nodepool_count/2 node pools found"
+      bad=1
+    fi
+  fi
+  
+  # Check Kafka pods
+  [ "${DEBUG_MODE:-0}" -eq 1 ] && echo "    [DEBUG] Counting Kafka pods"
+  kafka_pods=$($OC get pods -n knative-eventing -l ibmevents.ibm.com/cluster=knative-eventing-kafka --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+  if [ "$kafka_pods" -lt 3 ]; then
+    echo "❌ Only $kafka_pods/3 Kafka pods running"
+    bad=1
+  fi
+  
+  # Check entity operator
+  if ! $OC get deployment knative-eventing-kafka-entity-operator -n knative-eventing >/dev/null 2>&1; then
+    echo "❌ Kafka entity operator deployment not found"
+    bad=1
+  else
+    ready=$($OC get deployment knative-eventing-kafka-entity-operator -n knative-eventing -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    if [ "$ready" = "0" ]; then
+      echo "❌ Kafka entity operator not ready"
+      bad=1
+    fi
+  fi
+  
+  [ "$bad" -eq 0 ] && return 0 || return 1
+}
+
+check_kafka_user_and_secret() {
+  # Check KafkaUser and broker secret - only print failures
+  bad=0
+  
+  if ! $OC get kafkausers.ibmevents.ibm.com ke-kafka-user -n knative-eventing >/dev/null 2>&1; then
+    echo "❌ KafkaUser 'ke-kafka-user' not found"
+    bad=1
+  else
+    user_ready=$($OC get kafkausers.ibmevents.ibm.com ke-kafka-user -n knative-eventing -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+    if [ "$user_ready" != "True" ]; then
+      echo "❌ KafkaUser not ready (status: $user_ready)"
+      bad=1
+    fi
+  fi
+  
+  if ! $OC get secret ke-kafka-broker-secret -n knative-eventing >/dev/null 2>&1; then
+    echo "❌ Kafka broker secret 'ke-kafka-broker-secret' not found"
+    bad=1
+  else
+    # Verify secret has required keys
+    has_ca=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.ca\.crt}' 2>/dev/null || echo "")
+    has_user_crt=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.user\.crt}' 2>/dev/null || echo "")
+    has_user_key=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.user\.key}' 2>/dev/null || echo "")
+    
+    if [ -z "$has_ca" ] || [ -z "$has_user_crt" ] || [ -z "$has_user_key" ]; then
+      echo "❌ Kafka broker secret missing required keys (ca.crt, user.crt, user.key)"
+      bad=1
+    fi
+  fi
+  
+  [ "$bad" -eq 0 ] && return 0 || return 1
+}
+
+check_knative_kafka() {
+  # Check Knative Kafka - only print failures
+  bad=0
+  
+  if ! $OC get knativekafkas.operator.serverless.openshift.io knative-kafka -n knative-eventing >/dev/null 2>&1; then
+    echo "❌ KnativeKafka CR 'knative-kafka' not found"
+    return 1
+  fi
+  
+  kk_ready=$($OC get knativekafkas.operator.serverless.openshift.io knative-kafka -n knative-eventing -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+  if [ "$kk_ready" != "True" ]; then
+    echo "❌ KnativeKafka not ready (status: $kk_ready)"
+    bad=1
+  fi
+  
+  # Check Knative Kafka deployments
+  for dep in kafka-controller kafka-broker-receiver kafka-webhook-eventing; do
+    if ! $OC get deployment "$dep" -n knative-eventing >/dev/null 2>&1; then
+      echo "❌ Knative Kafka deployment $dep not found"
+      bad=1
+      continue
+    fi
+    ready=$($OC get deployment "$dep" -n knative-eventing -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    if [ "$ready" = "0" ]; then
+      echo "❌ Knative Kafka deployment $dep not ready"
+      bad=1
+    fi
+  done
+  
+  [ "$bad" -eq 0 ] && return 0 || return 1
+}
+
 check_knative_brokers() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   echo "▶ Checking Knative Brokers"
@@ -784,8 +1160,6 @@ check_knative_brokers() {
   while IFS= read -r line; do
     name="$(printf '%s\n' "$line" | awk '{print $1}')"
     url="$(printf '%s\n' "$line" | awk '{print $2}')"
-    age="$(printf '%s\n' "$line" | awk '{print $3}')"
-    ready="$(printf '%s\n' "$line" | awk '{print $4}')"
     [ -z "${name:-}" ] && continue
     
     # Get detailed status
@@ -795,12 +1169,10 @@ check_knative_brokers() {
     if [ "${ready_status:-}" = "True" ]; then
       echo "  ✅ Broker: $name"
       echo "     URL: ${url:-N/A}"
-      echo "     Age: ${age:-N/A}"
       echo "     Status: Ready"
     else
       echo "  ❌ Broker: $name"
       echo "     URL: ${url:-N/A}"
-      echo "     Age: ${age:-N/A}"
       echo "     Status: ${ready_status:-Unknown}"
       echo "     Reason: ${ready_reason:-Unknown}"
       bad=1
@@ -831,8 +1203,6 @@ check_knative_triggers() {
     name="$(printf '%s\n' "$line" | awk '{print $1}')"
     broker="$(printf '%s\n' "$line" | awk '{print $2}')"
     subscriber_uri="$(printf '%s\n' "$line" | awk '{print $3}')"
-    age="$(printf '%s\n' "$line" | awk '{print $4}')"
-    ready="$(printf '%s\n' "$line" | awk '{print $5}')"
     [ -z "${name:-}" ] && continue
     
     trigger_count=`expr "${trigger_count:-0}" + 1`
@@ -846,13 +1216,11 @@ check_knative_triggers() {
       echo "  ✅ Trigger: $name"
       echo "     Broker: ${broker:-N/A}"
       echo "     Subscriber: ${subscriber_uri:-N/A}"
-      echo "     Age: ${age:-N/A}"
       echo "     Status: Ready"
     else
       echo "  ❌ Trigger: $name"
       echo "     Broker: ${broker:-N/A}"
       echo "     Subscriber: ${subscriber_uri:-N/A}"
-      echo "     Age: ${age:-N/A}"
       echo "     Ready Status: ${ready_status:-Unknown}"
       echo "     Ready Reason: ${ready_reason:-Unknown}"
       echo "     Subscriber Status: ${subscriber_status:-Unknown}"
@@ -946,8 +1314,17 @@ list_recent_errors_all_pods() {
   echo "7. Last 24 hours"
   echo "8. Custom (enter minutes)"
   echo
-  printf "Enter your choice (1-8) [default: 5 minutes]: "
-  read time_choice
+  printf "Enter your choice (1-8) [default: 5 minutes in ${USER_INPUT_TIMEOUT}s]: "
+  
+  # Read with timeout
+  if read -t $USER_INPUT_TIMEOUT time_choice 2>/dev/null; then
+    : # User provided input
+  else
+    # Timeout or read not supported with -t
+    time_choice=""
+    echo
+    echo "⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, using default 5 minutes..."
+  fi
   
   # Determine time period
   case "$time_choice" in
@@ -1004,8 +1381,8 @@ list_recent_errors_all_pods() {
     containers=$($OCN get pod "$pod_name" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null)
     
     for container in $containers; do
-      # Get logs from specified time period and search for errors (exclude INFO/info level)
-      errors=$($OCN logs "$pod_name" -c "$container" --since="$time_period" 2>/dev/null | grep -iE "$error_patterns" | grep -vi '"level"[[:space:]]*:[[:space:]]*"info"' | tail -5 || true)
+      # Get logs from specified time period and search for errors (exclude INFO/info level, Redis background saving, and wo-uiproxy session warnings)
+      errors=$($OCN logs "$pod_name" -c "$container" --since="$time_period" 2>/dev/null | grep -iE "$error_patterns" | grep -vi '"level"[[:space:]]*:[[:space:]]*"info"' | grep -v "Background saving terminated with success" | grep -v "WXO Session cookie missing" | grep -v "Bearer token not found in the request header" | tail -5 || true)
       
       if [ -n "$errors" ]; then
         echo "  📦 Pod: $pod_name"
@@ -1068,16 +1445,16 @@ handle_bad_pods() {
   echo "6. List recent errors in ALL Orchestrate pods"
   echo "7. Skip remediation"
   echo
-  printf "Enter your choice (1-7) [auto-skip in 30s]: "
+  printf "Enter your choice (1-7) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
   
-  # Read with 30 second timeout
-  if read -t 30 choice 2>/dev/null; then
+  # Read with timeout
+  if read -t $USER_INPUT_TIMEOUT choice 2>/dev/null; then
     : # User provided input
   else
     # Timeout or read not supported with -t
     choice="7"
     echo
-    echo "⏱️  No input received within 30 seconds, skipping remediation and continuing with health checks..."
+    echo "⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping remediation and continuing with health checks..."
   fi
   
   case "$choice" in
@@ -1182,6 +1559,23 @@ check_wo_pods_troubleshoot() {
   fi
   if [ "${bad_found:-0}" -eq 0 ]; then
     echo "✅ All Orchestrate pods are healthy"
+    echo
+    printf "Would you like to check pod logs anyway? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    
+    # Read with timeout
+    if read -t $USER_INPUT_TIMEOUT check_logs_response 2>/dev/null; then
+      : # User provided input
+    else
+      # Timeout or read not supported with -t
+      check_logs_response="n"
+      echo
+      echo "⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping log check..."
+    fi
+    
+    if [ "$check_logs_response" = "y" ] || [ "$check_logs_response" = "Y" ]; then
+      echo
+      list_recent_errors_all_pods
+    fi
     rm -f "$tmp_list" "$tmp_bad"
     return 0
   else
@@ -1217,11 +1611,54 @@ run_troubleshoot_mode() {
     echo "Running eventing checks for ${WXO_EDITION} edition..."
     echo
     
+    # Check Knative Eventing Infrastructure
+    echo "▶ Checking Knative Eventing Infrastructure"
+    if check_knative_eventing_deployment; then
+      echo "  ✅ All Knative Eventing deployment checks passed (OpenShift Serverless + Knative Eventing)"
+    else
+      echo "  ⚠️  Some Knative Eventing deployment checks failed (see details above)"
+    fi
+    if check_ibm_events_operator; then
+      echo "  ✅ IBM Events Operator deployment is ready"
+    else
+      echo "  ⚠️  IBM Events Operator checks failed (see details above)"
+    fi
+    if check_kafka_cluster; then
+      echo "  ✅ Kafka cluster is ready (CR, pods, entity operator)"
+    else
+      echo "  ⚠️  Some Kafka cluster checks failed (see details above)"
+    fi
+    if check_kafka_user_and_secret; then
+      echo "  ✅ Kafka user (ke-kafka-user) and broker secret (ke-kafka-broker-secret) are ready"
+    else
+      echo "  ⚠️  Kafka user or broker secret checks failed (see details above)"
+    fi
+    if check_knative_kafka; then
+      echo "  ✅ KnativeKafka CR and deployments are ready"
+    else
+      echo "  ⚠️  Some Knative Kafka checks failed (see details above)"
+    fi
+    echo
+    
     # Check Knative Brokers
     check_knative_brokers
     
     # Check Knative Triggers
     check_knative_triggers
+    
+    # Check Watson Assistant operator verification if Assistant CR has issues
+    echo
+    wa_name=`$OC -n $PROJECT_CPD_INST_OPERANDS get wa --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
+    if [ -n "$wa_name" ]; then
+      wa_ready=`$OC -n $PROJECT_CPD_INST_OPERANDS get wa "$wa_name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
+      wa_status=`$OC -n $PROJECT_CPD_INST_OPERANDS get wa "$wa_name" -o jsonpath='{.status.watsonAssistantStatus}' 2>/dev/null || :`
+      wa_progress=`$OC -n $PROJECT_CPD_INST_OPERANDS get wa "$wa_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
+      
+      if [ "$wa_ready" != "True" ] || [ "$wa_status" != "Completed" ] || [ "$wa_progress" != "100%" ]; then
+        echo "▶ Watson Assistant CR shows issues - checking operator verification"
+        check_wa_operator_verification
+      fi
+    fi
   else
     echo "Troubleshoot mode is enabled but no edition-specific checks configured for: ${WXO_EDITION:-unknown}"
     echo
@@ -1241,9 +1678,21 @@ detect_wxo_edition
 
 trap 'echo; echo "Interrupted. Exiting."; exit 1' INT TERM
 
+# Print author credit
+echo "=========================================="
+echo "📋 watsonx Orchestrate Health Check Script"
+echo "   For issues or feature requests, please contact Manu Thapar"
+echo "=========================================="
+echo ""
+
 # Run troubleshoot mode if enabled
 if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
   run_troubleshoot_mode
+  echo
+  echo "Continuing with standard health checks..."
+  echo
+  # Skip pod check in standard health checks since we already checked in troubleshoot mode
+  CHECK_WO_PODS=0
 fi
 
 TRY=1
@@ -1252,7 +1701,7 @@ while [ "$TRY" -le "$MAX_TRIES" ]; do
 
   pods_ok=0; wo_cr_ok=0; wocs_ok=0; wa_cr_ok=0; ifm_cr_ok=0
   docproc_ok=0; de_ok=0; uab_ok=0
-  edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0; jobs_ok=0
+  edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0; jobs_ok=0; knative_eventing_ok=0
 
   if [ "${CHECK_WO_PODS:-1}" -eq 1 ]; then pods_ok=1; if check_wo_pods; then pods_ok=0; fi; fi
 
@@ -1346,7 +1795,7 @@ check_obc() {
      && [ "$wa_cr_ok" -eq 0 ] && [ "$ifm_cr_ok" -eq 0 ] \
      && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
      && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
-     && [ "$jobs_ok" -eq 0 ]; then
+     && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ]; then
     echo "🎉 All enabled checks passed on attempt $TRY. Orchestrate is healthy."
     exit 0
   fi
