@@ -1388,7 +1388,7 @@ get_last_errors() {
   containers=$($OCN get pod "$pod_name" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null)
   
   # Common error keywords to search for
-  error_patterns="error|exception|fatal|failed|panic|crash|killed|terminated|timeout|refused|denied|forbidden|unauthorized|unavailable|unreachable|cannot|unable|invalid|missing|not found|failure"
+  error_patterns="error|exception|fatal|failed|panic|crash|killed|terminated|timeout|refused|denied|forbidden|unauthorized|unavailable|unreachable|cannot|unable|invalid|missing|not found|failure|core dumped|aborted"
   
   for container in $containers; do
     echo "     Container: $container"
@@ -1500,7 +1500,7 @@ list_recent_errors_all_pods() {
   fi
   
   # Common error keywords
-  error_patterns="error|exception|fatal|failed|panic|crash|killed|terminated|timeout|refused|denied|forbidden|unauthorized|unavailable|unreachable|cannot|unable|invalid|missing|not found|failure"
+  error_patterns="error|exception|fatal|failed|panic|crash|killed|terminated|timeout|refused|denied|forbidden|unauthorized|unavailable|unreachable|cannot|unable|invalid|missing|not found|failure|core dumped|aborted"
   
   pod_count=0
   error_found=0
