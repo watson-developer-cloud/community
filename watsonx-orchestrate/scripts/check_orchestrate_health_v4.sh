@@ -1592,9 +1592,7 @@ list_recent_errors_all_pods() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   
   echo
-  echo "=========================================="
-  echo "RECENT ERRORS IN ALL ORCHESTRATE PODS"
-  echo "=========================================="
+  echo "▶ Recent Errors in All Orchestrate Pods"
   echo
   echo "Select time period to check:"
   echo "1. Last 1 minute"
@@ -1720,9 +1718,7 @@ check_and_fix_milvus_etcd() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   
   echo
-  echo "=========================================="
-  echo "CHECKING MILVUS ETCD DATABASE SPACE"
-  echo "=========================================="
+  echo "▶ Checking Milvus Etcd Database Space"
   echo
   
   # Check if etcd pod exists
@@ -2010,9 +2006,7 @@ handle_bad_pods() {
   fi
   
   echo
-  echo "=========================================="
-  echo "POD REMEDIATION OPTIONS"
-  echo "=========================================="
+  echo "▶ Pod Remediation Options"
   echo
   echo "1. List errors in failing pods only (no deletion)"
   echo "2. Delete failing pods immediately"
@@ -2171,9 +2165,7 @@ check_wo_pods_troubleshoot() {
 
 run_troubleshoot_mode() {
   echo
-  echo "=========================================="
-  echo "TROUBLESHOOT MODE"
-  echo "=========================================="
+  echo "▶ Troubleshoot Mode"
   echo
   
   # Check operators first
