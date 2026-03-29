@@ -1,24 +1,64 @@
 #!/bin/sh
 #
-# Combined health check for watsonx Orchestrate on OpenShift (POSIX sh)
+# watsonx Orchestrate Health Check Script with Troubleshoot Mode
 #
-# Edition aware:
-#  - Detects agentic via wo.spec.wxolite.enabled=true (primary), then other spec hints, then heuristics
-#  - Accepts WoComponentServices componentStatus=ReconciledLite as healthy
-#  - In agentic, WA, IFM, DocumentProcessing, DigitalEmployees, UAB ADS are checked and gate health if present
+# Copyright 2026 IBM Corporation
 #
-# What it does:
-#  - Autodetect namespaces (OPERATORS and OPERANDS) if env vars are not set
-#  - Detect edition: agentic_skills_assistant vs agentic
-#  - Verify all pods starting with "wo-" are either Completed or fully Running (x/x ready)
-#  - Check CRs (individually toggleable)
-#  - Check datastores only those starting with wo-: EDB Postgres, Kafka, Redis CP, WXD engines
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Behavior:
-#  - Exits 0 on the first successful pass where all enabled checks are healthy
-#  - Otherwise retries up to MAX_TRIES, sleeping SLEEP_SECS between attempts, then exits 1
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# Contributor - Manu Thapar
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Author: Manu Thapar
+#
+# SUMMARY:
+# Comprehensive health check and troubleshooting tool for watsonx Orchestrate on OpenShift.
+# Supports standard health checks and an interactive troubleshoot mode for detailed diagnostics.
+#
+# FEATURES:
+#  - Troubleshoot Mode (--troubleshoot flag):
+#    * Interactive pod remediation with 7 options
+#    * List errors in failing pods or ALL Orchestrate pods
+#    * Delete pods with optional log backup
+#    * Customizable time period for error analysis (1m-24h)
+#    * 30-second auto-skip timeout
+#    * Shows termination reasons for restarting pods
+#    * Excludes INFO-level logs from error output
+#
+#  - Edition Detection:
+#    * Supports agentic, agentic_assistant, agentic_skills_assistant
+#    * Detects via wo.spec.wxolite.enabled, spec hints, and heuristics
+#    * Knative Brokers and Triggers health checks for agentic editions
+#
+#  - Health Checks:
+#    * Autodetect namespaces (OPERATORS and OPERANDS)
+#    * Verify all wo-* pods are Completed or fully Running
+#    * Check Custom Resources (individually toggleable)
+#    * Check datastores: EDB Postgres, Kafka, Redis, WXD engines, OBC
+#    * Check Orchestrate and Assistant jobs
+#
+#  - Behavior:
+#    * Runs troubleshoot mode first (if enabled), then continues with health checks
+#    * Retries up to MAX_TRIES (default: 40) with SLEEP_SECS (default: 15) between attempts
+#    * Exits 0 on first successful pass where all enabled checks are healthy
+#    * Exits 1 if max tries exhausted without passing all checks
+#
+# USAGE:
+#  ./check_orchestrate_health_v4.sh [OPTIONS]
+#
+#  Options:
+#    --troubleshoot              Enable troubleshoot mode with interactive remediation
+#    -n, --namespace NAMESPACE   Override operands namespace
+#    --assume-agentic            Assume agentic edition
+#    --assume-agentic-skills     Assume agentic_skills_assistant edition
+#    -h, --help                  Show help message
 
 set -eu
 
