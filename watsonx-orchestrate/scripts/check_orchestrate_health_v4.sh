@@ -94,6 +94,26 @@ ASSUME_EDITION=""
 : "${DEBUG_MODE:=0}"
 : "${USER_INPUT_TIMEOUT:=10}"  # Timeout in seconds for user input prompts
 
+# Log noise patterns to exclude from error output (one grep -v per pattern)
+# These are known harmless messages that match error keywords but are not actionable
+LOG_NOISE_PATTERNS='
+Background saving terminated with success
+WXO Session cookie missing
+Bearer token not found in the request header
+import job stats
+import task stats
+try remove empty sealed segment
+mkdir -p failed.*matplotlib
+Fontconfig error.*writable cache
+Timeout on acquiring lock.*leader.lock
+sasl\.login\.read\.timeout\.ms
+socket\.connection\.setup\.timeout
+instana-agent.*Metadata update failed
+Timed out waiting for a node assignment.*fetchMetadata
+No pods or no unique pods available to load
+client_idle_timeout
+'
+
 # ---------------------- Arg parsing -------------------------
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -112,6 +132,12 @@ ts() { date '+%Y-%m-%d %H:%M:%S'; }
 OC="oc"
 
 print_rule() { echo "------------------------------------------------------------"; }
+
+# Build a combined regex from LOG_NOISE_PATTERNS for grep -vE filtering
+build_noise_regex() {
+  echo "$LOG_NOISE_PATTERNS" | sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | paste -sd'|' -
+}
+LOG_NOISE_REGEX=$(build_noise_regex)
 
 get_wo_models_info() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
@@ -1553,7 +1579,7 @@ get_last_errors() {
   
   for container in $containers; do
     echo "     Container: $container"
-    errors=$($OCN logs "$pod_name" -c "$container" --tail=500 2>/dev/null | grep -iE "$error_patterns" | tail -5)
+    errors=$($OCN logs "$pod_name" -c "$container" --tail=500 2>/dev/null | grep -iE "$error_patterns" | grep -vi '"level"[[:space:]]*:[[:space:]]*"info"' | grep -vE "$LOG_NOISE_REGEX" | tail -5)
     if [ -n "$errors" ]; then
       echo "$errors" | while IFS= read -r line; do
         echo "       $line"
@@ -1671,8 +1697,8 @@ list_recent_errors_all_pods() {
     containers=$($OCN get pod "$pod_name" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null)
     
     for container in $containers; do
-      # Get logs from specified time period and search for errors (exclude INFO/info level, Redis background saving, and wo-uiproxy session warnings)
-      errors=$($OCN logs "$pod_name" -c "$container" --since="$time_period" 2>/dev/null | grep -iE "$error_patterns" | grep -vi '"level"[[:space:]]*:[[:space:]]*"info"' | grep -v "Background saving terminated with success" | grep -v "WXO Session cookie missing" | grep -v "Bearer token not found in the request header" | tail -5 || true)
+      # Get logs from specified time period and search for errors (exclude INFO level and known noise via LOG_NOISE_REGEX)
+      errors=$($OCN logs "$pod_name" -c "$container" --since="$time_period" 2>/dev/null | grep -iE "$error_patterns" | grep -vi '"level"[[:space:]]*:[[:space:]]*"info"' | grep -vE "$LOG_NOISE_REGEX" | tail -5 || true)
       
       if [ -n "$errors" ]; then
         echo "  📦 Pod: $pod_name"
