@@ -1630,38 +1630,49 @@ check_and_fix_milvus_etcd() {
   echo
   echo "  🔧 Fixing etcd database space issue..."
   echo
+  echo "  ℹ️  When etcd has NOSPACE, defragmentation is the critical step."
+  echo "  ℹ️  Compaction may timeout but defrag should still work."
+  echo
   
   # Step 1: Get current revision (with fallback)
   echo "  1️⃣  Getting current etcd revision..."
   revision=$($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl endpoint status --write-out=json' 2>/dev/null | jq -r '.[0].Status.header.revision' 2>/dev/null)
   
+  skip_compact=false
   if [ -z "$revision" ] || [ "$revision" = "null" ]; then
-    echo "  ⚠️  Cannot get revision (etcd may be unresponsive due to NOSPACE)"
-    echo "  ℹ️  Using fallback: will compact to a very high revision number"
-    # Use a very high revision number - etcd will compact up to current revision
-    revision="999999999"
+    echo "  ⚠️  Cannot get revision (etcd is unresponsive due to NOSPACE)"
+    echo "  ℹ️  Skipping compact step and going directly to defragmentation"
+    skip_compact=true
   else
     echo "  ✅ Current revision: $revision"
   fi
   echo
   
-  # Step 2: Compact
-  echo "  2️⃣  Compacting etcd database to revision $revision..."
-  compact_output=$($OCN exec "$etcd_pod" -- sh -lc "ETCDCTL_API=3 etcdctl compact $revision" 2>&1)
-  compact_exit=$?
-  
-  if [ $compact_exit -eq 0 ]; then
-    echo "  ✅ Compaction completed successfully"
-  else
-    # Check if it's just because revision is too high (which is OK)
-    if echo "$compact_output" | grep -q "required revision has been compacted"; then
-      echo "  ✅ Database already compacted (this is OK)"
+  # Step 2: Compact (only if we got a valid revision)
+  if [ "$skip_compact" = false ]; then
+    echo "  2️⃣  Compacting etcd database to revision $revision (timeout: 60s)..."
+    compact_output=$($OCN exec "$etcd_pod" -- sh -lc "ETCDCTL_API=3 etcdctl --command-timeout=60s compact $revision" 2>&1)
+    compact_exit=$?
+    
+    if [ $compact_exit -eq 0 ]; then
+      echo "  ✅ Compaction completed successfully"
     else
-      echo "  ⚠️  Compaction output: $compact_output"
-      echo "  ℹ️  Continuing with defragmentation anyway..."
+      # Check if it's just because revision is too high (which is OK)
+      if echo "$compact_output" | grep -q "required revision has been compacted"; then
+        echo "  ✅ Database already compacted (this is OK)"
+      elif echo "$compact_output" | grep -q "context deadline exceeded"; then
+        echo "  ⚠️  Compaction timed out (etcd may be severely degraded)"
+        echo "  ℹ️  Proceeding with defragmentation - this is the critical step..."
+      else
+        echo "  ⚠️  Compaction output: $compact_output"
+        echo "  ℹ️  Proceeding with defragmentation anyway..."
+      fi
     fi
+    echo
+  else
+    echo "  2️⃣  Skipping compaction (etcd unresponsive)"
+    echo
   fi
-  echo
   
   # Step 3: Defragment
   echo "  3️⃣  Defragmenting etcd database (this may take up to 5 minutes)..."
