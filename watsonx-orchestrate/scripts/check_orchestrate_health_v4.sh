@@ -1677,11 +1677,16 @@ check_and_fix_milvus_etcd() {
   # Step 3: Defragment (with live size tracking)
   echo "  3️⃣  Defragmenting etcd database (this may take up to 5 minutes)..."
   
-  # Get database size before defrag
+  # Get database size before defrag (try multiple paths)
   echo "  📊 Checking database size before defragmentation..."
-  db_size_before=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
+  db_size_before=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /etcd/member 2>/dev/null || du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
+  db_file_before=$($OCN exec "$etcd_pod" -- sh -lc 'ls -lh /etcd/member/snap/db 2>/dev/null || ls -lh /bitnami/etcd/data/member/snap/db 2>/dev/null' 2>/dev/null | awk '{print $5}')
+  
   if [ -n "$db_size_before" ]; then
-    echo "     Database size before: $db_size_before"
+    echo "     Database directory size: $db_size_before"
+    if [ -n "$db_file_before" ]; then
+      echo "     Database file size: $db_file_before"
+    fi
   else
     echo "     (Unable to check size - may be inaccessible due to NOSPACE)"
   fi
@@ -1700,19 +1705,30 @@ check_and_fix_milvus_etcd() {
   echo "     Monitoring defragmentation progress..."
   monitor_count=0
   last_size=""
+  last_mtime=""
   while kill -0 $defrag_pid 2>/dev/null; do
     sleep 10
     monitor_count=$((monitor_count + 1))
-    current_size=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
-    if [ -n "$current_size" ]; then
-      if [ "$current_size" != "$last_size" ]; then
-        echo "     [${monitor_count}0s] Database size: $current_size"
+    
+    # Check database file size and modification time
+    db_info=$($OCN exec "$etcd_pod" -- sh -lc 'stat -c "%s %Y" /etcd/member/snap/db 2>/dev/null || stat -c "%s %Y" /bitnami/etcd/data/member/snap/db 2>/dev/null' 2>/dev/null)
+    current_size_bytes=$(echo "$db_info" | awk '{print $1}')
+    current_mtime=$(echo "$db_info" | awk '{print $2}')
+    
+    if [ -n "$current_size_bytes" ]; then
+      # Convert bytes to human readable
+      current_size_mb=$((current_size_bytes / 1024 / 1024))
+      current_size="${current_size_mb}M"
+      
+      if [ "$current_size" != "$last_size" ] || [ "$current_mtime" != "$last_mtime" ]; then
+        echo "     [${monitor_count}0s] Database: ${current_size} (file modified: $(date -d @${current_mtime} '+%H:%M:%S' 2>/dev/null || echo 'recently'))"
         last_size="$current_size"
+        last_mtime="$current_mtime"
       else
-        echo "     [${monitor_count}0s] Defragmentation in progress... (size: $current_size)"
+        echo "     [${monitor_count}0s] Defragmentation in progress... (size: $current_size, no changes yet)"
       fi
     else
-      echo "     [${monitor_count}0s] Defragmentation in progress... (etcd locked, cannot check size)"
+      echo "     [${monitor_count}0s] Defragmentation in progress... (cannot access database file)"
     fi
   done
   
@@ -1727,11 +1743,19 @@ check_and_fix_milvus_etcd() {
     
     # Get final database size
     sleep 2  # Brief pause to let filesystem update
-    db_size_after=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
+    db_size_after=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /etcd/member 2>/dev/null || du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
+    db_file_after=$($OCN exec "$etcd_pod" -- sh -lc 'ls -lh /etcd/member/snap/db 2>/dev/null || ls -lh /bitnami/etcd/data/member/snap/db 2>/dev/null' 2>/dev/null | awk '{print $5}')
+    
     if [ -n "$db_size_after" ]; then
-      echo "     📊 Final database size: $db_size_after"
+      echo "     📊 Final database directory size: $db_size_after"
+      if [ -n "$db_file_after" ]; then
+        echo "     📊 Final database file size: $db_file_after"
+      fi
       if [ -n "$db_size_before" ]; then
         echo "     ✨ Space reclaimed: $db_size_before → $db_size_after"
+        if [ -n "$db_file_before" ] && [ -n "$db_file_after" ]; then
+          echo "     ✨ File size change: $db_file_before → $db_file_after"
+        fi
       fi
     fi
   else
