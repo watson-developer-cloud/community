@@ -549,7 +549,8 @@ check_wxd_engines() {
   rows=`$OCN get wxdengines.watsonxdata.ibm.com --no-headers 2>/dev/null | awk '$1 ~ /^wo-/'` || :
   if [ -z "$rows" ]; then echo "❌ No WXD engines starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
-  echo "$rows" | while read name version type display size reconcile status age; do
+  # Use process substitution to avoid subshell issue with pipe
+  while read name version type display size reconcile status age; do
     [ -z "$name" ] && continue
     echo "$reconcile" | grep -qi "completed" && recon_ok=1 || recon_ok=0
     echo "$status" | grep -Eqi "^(running|completed)$" && phase_ok=1 || phase_ok=0
@@ -567,7 +568,9 @@ check_wxd_engines() {
         bad=1
       fi
     fi
-  done
+  done <<EOF
+$rows
+EOF
   [ "${bad:-0}" -eq 0 ] && return 0 || return 1
 }
 
