@@ -1733,11 +1733,10 @@ list_recent_errors_all_pods() {
   
   if [ "$error_found" -eq 0 ]; then
     echo "  ✅ No errors found in the last $time_desc"
-    echo
   fi
   
+  echo
   echo "Checked $pod_count pods"
-  echo "=========================================="
   echo
   
   rm -f "$tmp_pods"
