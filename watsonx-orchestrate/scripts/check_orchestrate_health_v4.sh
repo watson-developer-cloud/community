@@ -96,7 +96,7 @@ while [ $# -gt 0 ]; do
     -n|--namespace) OVERRIDE_NS="$2"; shift 2 ;;
     --assume-agentic)  ASSUME_EDITION="agentic"; shift 1 ;;
     --assume-agentic-skills)  ASSUME_EDITION="agentic_skills_assistant"; shift 1 ;;
-    --troubleshoot) TROUBLESHOOT_MODE=1; shift 1 ;;
+    -t|--troubleshoot) TROUBLESHOOT_MODE=1; shift 1 ;;
     -h|--help) sed -n '1,220p' "$0"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -107,10 +107,129 @@ ts() { date '+%Y-%m-%d %H:%M:%S'; }
 OC="oc"
 
 print_rule() { echo "------------------------------------------------------------"; }
+
+get_wo_models_info() {
+  OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+  wo_name=`$OCN get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
+  
+  if [ -z "$wo_name" ]; then
+    echo "    Size: N/A (WO CR not found)"
+    echo "    HPA Enabled: N/A"
+    echo "    IFM Enabled: N/A"
+    return
+  fi
+  
+  # Get overall size - default to "medium" if not set
+  wo_size=`$OCN get wo "$wo_name" -o jsonpath='{.spec.size}' 2>/dev/null || :`
+  if [ -n "$wo_size" ]; then
+    echo "    Size: $wo_size"
+  else
+    echo "    Size: medium"
+  fi
+  
+  # Get HPA configuration - default to false (disabled) if not set
+  hpa_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.autoScaleConfig}' 2>/dev/null || :`
+  case "$(echo "${hpa_enabled:-}" | tr '[:upper:]' '[:lower:]')" in
+    true) echo "    HPA Enabled: true" ;;
+    *) echo "    HPA Enabled: false" ;;
+  esac
+  
+  # Check if IFM is enabled
+  ifm_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.wxolite.enable_ifm}' 2>/dev/null || :`
+  case "$(echo "${ifm_enabled:-}" | tr '[:upper:]' '[:lower:]')" in
+    true)
+      echo "    IFM Enabled: true"
+      ;;
+    false)
+      echo "    IFM Enabled: false"
+      return
+      ;;
+    *)
+      echo "    IFM Enabled: false"
+      return
+      ;;
+  esac
+  
+  # Only list models if IFM is enabled
+  # Get models from wxolite.ifm.model_config
+  models_json=`$OCN get wo "$wo_name" -o jsonpath='{.spec.wxolite.ifm.model_config}' 2>/dev/null || :`
+  
+  if [ -z "$models_json" ] || [ "$models_json" = "{}" ] || [ "$models_json" = "null" ]; then
+    echo "    Models: None configured"
+    return
+  fi
+  
+  echo "    Models configured:"
+  
+  # Parse the nested model_config structure
+  # Structure is: model_config -> model_type -> model_name -> {replicas, shards}
+  tmp_models=`mktemp 2>/dev/null || echo "/tmp/wo_models.$$"`
+  
+  # Get all model types and models
+  $OCN get wo "$wo_name" -o json 2>/dev/null | \
+    awk '
+      BEGIN { in_model_config=0; model_type=""; model_name=""; indent=0 }
+      /"model_config"[[:space:]]*:/ { in_model_config=1; next }
+      in_model_config {
+        # Track nesting level by counting braces
+        if ($0 ~ /{/) indent++
+        if ($0 ~ /}/) {
+          indent--
+          if (indent <= 1) { in_model_config=0; next }
+        }
+        
+        # Match model type (first level under model_config)
+        if (indent == 2 && $0 ~ /"[^"]+"\s*:\s*{/) {
+          match($0, /"([^"]+)"/, arr)
+          model_type = arr[1]
+        }
+        
+        # Match model name (second level)
+        if (indent == 3 && $0 ~ /"[^"]+"\s*:\s*{/) {
+          match($0, /"([^"]+)"/, arr)
+          model_name = arr[1]
+        }
+        
+        # Match replicas
+        if (model_name != "" && $0 ~ /"replicas"/) {
+          match($0, /:\s*([0-9]+)/, arr)
+          replicas = arr[1]
+        }
+        
+        # Match shards
+        if (model_name != "" && $0 ~ /"shards"/) {
+          match($0, /:\s*([0-9]+)/, arr)
+          shards = arr[1]
+          # Print when we have all info
+          if (model_type != "" && model_name != "") {
+            print model_type "|" model_name "|" replicas "|" shards
+            model_name = ""
+            replicas = ""
+            shards = ""
+          }
+        }
+      }
+    ' > "$tmp_models" 2>/dev/null || :
+  
+  if [ -s "$tmp_models" ]; then
+    while IFS='|' read -r mtype mname replicas shards; do
+      [ -z "$mname" ] && continue
+      replica_info="${replicas:-default}"
+      shard_info="${shards:-default}"
+      echo "      - ${mtype}/${mname}: replicas=${replica_info}, shards=${shard_info}"
+    done < "$tmp_models"
+  else
+    echo "      (Unable to parse model configuration)"
+  fi
+  
+  rm -f "$tmp_models"
+}
+
 print_header() {
   print_rule
   echo "⏱  $(ts)  Checking Orchestrate health in OPERANDS namespace: $PROJECT_CPD_INST_OPERANDS (operators: ${PROJECT_CPD_INST_OPERATORS:-none})"
   echo "    Edition: ${WXO_EDITION:-unknown}${WXO_DETECT_NOTE:+  (${WXO_DETECT_NOTE})}"
+  get_wo_models_info
   print_rule
 }
 
