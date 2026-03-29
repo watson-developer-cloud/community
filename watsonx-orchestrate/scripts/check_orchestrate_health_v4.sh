@@ -1308,13 +1308,8 @@ check_ibm_events_operator() {
   
   bad=0
   # Try different deployment names across releases
-  events_deploy=""
-  for dep_name in ibm-events-cluster-operator ibm-events-operator; do
-    if $OC get deployment "$dep_name" -n "$events_ns" >/dev/null 2>&1; then
-      events_deploy="$dep_name"
-      break
-    fi
-  done
+  # Use pattern matching to handle versioned operator names like ibm-events-operator-v5.2.1-*
+  events_deploy=$($OC get deployment -n "$events_ns" -o name 2>/dev/null | grep -E 'ibm-events-(cluster-)?operator' | head -n1 | sed 's|deployment.apps/||')
   
   if [ -z "$events_deploy" ]; then
     echo "❌ IBM Events Operator deployment not found in $events_ns"
