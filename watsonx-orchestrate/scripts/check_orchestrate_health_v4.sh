@@ -928,13 +928,13 @@ check_edb_clusters() {
       bad=1
     elif [ "$ready" = "$instances" ] && [ "$healthy_phase" -eq 1 ]; then
       if [ -n "$primary_pod" ]; then
-        echo "✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text, Master=$primary_pod"
+        echo "✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text, Primary=$primary_pod"
       else
         echo "✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text"
       fi
     else
       if [ -n "$primary_pod" ]; then
-        echo "❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}, Master=$primary_pod"
+        echo "❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}, Primary=$primary_pod"
       else
         echo "❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}"
       fi
