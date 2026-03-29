@@ -1593,7 +1593,7 @@ list_recent_errors_all_pods() {
   
   echo
   echo "=========================================="
-  echo "🔍 RECENT ERRORS IN ALL ORCHESTRATE PODS"
+  echo "RECENT ERRORS IN ALL ORCHESTRATE PODS"
   echo "=========================================="
   echo
   echo "Select time period to check:"
@@ -1721,7 +1721,7 @@ check_and_fix_milvus_etcd() {
   
   echo
   echo "=========================================="
-  echo "🔍 CHECKING MILVUS ETCD DATABASE SPACE"
+  echo "CHECKING MILVUS ETCD DATABASE SPACE"
   echo "=========================================="
   echo
   
@@ -2011,7 +2011,7 @@ handle_bad_pods() {
   
   echo
   echo "=========================================="
-  echo "🔧 POD REMEDIATION OPTIONS"
+  echo "POD REMEDIATION OPTIONS"
   echo "=========================================="
   echo
   echo "1. List errors in failing pods only (no deletion)"
@@ -2172,7 +2172,7 @@ check_wo_pods_troubleshoot() {
 run_troubleshoot_mode() {
   echo
   echo "=========================================="
-  echo "🔍 TROUBLESHOOT MODE"
+  echo "TROUBLESHOOT MODE"
   echo "=========================================="
   echo
   
