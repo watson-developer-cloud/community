@@ -233,7 +233,7 @@ get_wo_models_info() {
 print_header() {
   echo ""
   echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-  echo "║                 watsonx Orchestrate Health Check Script                     ║"
+  echo "║                 watsonx Orchestrate Health Check Script                      ║"
   echo "║                         Author: Manu Thapar                                  ║"
   echo "╠══════════════════════════════════════════════════════════════════════════════╣"
   
@@ -243,8 +243,8 @@ print_header() {
   echo "║                                                                              ║"
   
   # Namespaces
-  printf "║ OPERANDS Namespace: %-55s║\n" "$PROJECT_CPD_INST_OPERANDS"
-  printf "║ OPERATORS Namespace: %-54s║\n" "${PROJECT_CPD_INST_OPERATORS:-none}"
+  printf "║ OPERANDS Namespace: %-57s║\n" "$PROJECT_CPD_INST_OPERANDS"
+  printf "║ OPERATORS Namespace: %-56s║\n" "${PROJECT_CPD_INST_OPERATORS:-none}"
   echo "║                                                                              ║"
   
   # Edition
@@ -254,7 +254,7 @@ print_header() {
   if [ -n "${WXO_DETECT_NOTE:-}" ]; then
     echo "$WXO_DETECT_NOTE" | sed 's/ and /\n/g' | while IFS= read -r line; do
       [ -z "$line" ] && continue
-      printf "║   • %-70s║\n" "$line"
+      printf "║   • %-73s║\n" "$line"
     done
   fi
   echo "║                                                                              ║"
@@ -268,10 +268,10 @@ print_header() {
     wo_size=`$OCN get wo "$wo_name" -o jsonpath='{.spec.size}' 2>/dev/null || :`
     if [ -n "$wo_size" ]; then
       printf "║ Size: %-71s║\n" "$wo_size"
-      printf "║   • wo.spec.size=%-59s║\n" "$wo_size"
+      printf "║   • wo.spec.size=%-60s║\n" "$wo_size"
     else
       printf "║ Size: %-71s║\n" "medium (default)"
-      printf "║   • wo.spec.size=%-59s║\n" "Not Present"
+      printf "║   • wo.spec.size=%-60s║\n" "Not Present"
     fi
     
     # HPA (no emoji)
@@ -280,17 +280,17 @@ print_header() {
       case "$(echo "$hpa_enabled" | tr '[:upper:]' '[:lower:]')" in
         true)
           printf "║ HPA: %-72s║\n" "Enabled"
-          printf "║   • wo.spec.autoScaleConfig=%-51s║\n" "true" ;;
+          printf "║   • wo.spec.autoScaleConfig=%-49s║\n" "true" ;;
         false)
           printf "║ HPA: %-72s║\n" "Disabled"
-          printf "║   • wo.spec.autoScaleConfig=%-51s║\n" "false" ;;
+          printf "║   • wo.spec.autoScaleConfig=%-49s║\n" "false" ;;
         *)
           printf "║ HPA: %-72s║\n" "Disabled (default)"
-          printf "║   • wo.spec.autoScaleConfig=%-51s║\n" "Not Present" ;;
+          printf "║   • wo.spec.autoScaleConfig=%-49s║\n" "Not Present" ;;
       esac
     else
       printf "║ HPA: %-72s║\n" "Disabled (default)"
-      printf "║   • wo.spec.autoScaleConfig=%-51s║\n" "Not Present"
+      printf "║   • wo.spec.autoScaleConfig=%-49s║\n" "Not Present"
     fi
     
     # IFM (no emoji)
@@ -299,7 +299,7 @@ print_header() {
       case "$(echo "$ifm_enabled" | tr '[:upper:]' '[:lower:]')" in
         true)
           printf "║ IFM: %-72s║\n" "Enabled"
-          printf "║   • wo.spec.wxolite.enable_ifm=%-47s║\n" "true"
+          printf "║   • wo.spec.wxolite.enable_ifm=%-46s║\n" "true"
           models_json=`$OCN get wo "$wo_name" -o jsonpath='{.spec.wxolite.ifm.model_config}' 2>/dev/null || :`
           if [ -n "$models_json" ] && [ "$models_json" != "{}" ] && [ "$models_json" != "null" ]; then
             printf "║   %-75s║\n" "Models configured:"
@@ -353,17 +353,17 @@ print_header() {
           ;;
         false)
           printf "║ IFM: %-72s║\n" "Disabled"
-          printf "║   • wo.spec.wxolite.enable_ifm=%-47s║\n" "false" ;;
+          printf "║   • wo.spec.wxolite.enable_ifm=%-46s║\n" "false" ;;
         *)
           printf "║ IFM: %-72s║\n" "Disabled (default)"
-          printf "║   • wo.spec.wxolite.enable_ifm=%-47s║\n" "Not Present" ;;
+          printf "║   • wo.spec.wxolite.enable_ifm=%-46s║\n" "Not Present" ;;
       esac
     else
       printf "║ IFM: %-72s║\n" "Disabled (default)"
-      printf "║   • wo.spec.wxolite.enable_ifm=%-47s║\n" "Not Present"
+      printf "║   • wo.spec.wxolite.enable_ifm=%-46s║\n" "Not Present"
     fi
   else
-    printf "║ ⚠️  %-72s║\n" "WO CR not found - cannot retrieve configuration details"
+    printf "║ ⚠️  %-74s║\n" "WO CR not found - cannot retrieve configuration details"
   fi
   
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
