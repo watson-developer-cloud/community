@@ -1458,7 +1458,7 @@ list_recent_errors_all_pods() {
     7) time_period="24h"; time_desc="24 hours" ;;
     8)
       printf "Enter number of minutes: "
-      read custom_minutes
+      read custom_minutes </dev/tty
       if [ -n "$custom_minutes" ] && [ "$custom_minutes" -gt 0 ] 2>/dev/null; then
         time_period="${custom_minutes}m"
         time_desc="$custom_minutes minutes"
