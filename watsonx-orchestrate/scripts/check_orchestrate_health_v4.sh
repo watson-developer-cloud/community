@@ -1555,6 +1555,129 @@ list_recent_errors_all_pods() {
   rm -f "$tmp_pods"
 }
 
+check_and_fix_milvus_etcd() {
+  OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+  
+  echo
+  echo "=========================================="
+  echo "🔍 CHECKING MILVUS ETCD DATABASE SPACE"
+  echo "=========================================="
+  echo
+  
+  # Check if etcd pod exists
+  etcd_pod=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-etcd" | grep "Running" | awk '{print $1}' | head -1)
+  
+  if [ -z "$etcd_pod" ]; then
+    echo "  ℹ️  No Milvus etcd pod found or pod not running"
+    return 0
+  fi
+  
+  echo "  📦 Found etcd pod: $etcd_pod"
+  echo
+  
+  # Check for NOSPACE alarms in etcd pod itself
+  echo "  🔍 Checking etcd pod for NOSPACE alarms..."
+  space_error_found=0
+  
+  if $OCN logs "$etcd_pod" --tail=200 2>/dev/null | grep -q "ALARM NOSPACE"; then
+    echo "  ⚠️  Found 'ALARM NOSPACE' in etcd pod: $etcd_pod"
+    space_error_found=1
+  fi
+  
+  # Check for database space exceeded errors in Milvus pods
+  echo "  🔍 Checking Milvus pods for 'database space exceeded' errors..."
+  milvus_pods=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-standalone" | awk '{print $1}')
+  
+  for pod in $milvus_pods; do
+    if $OCN logs "$pod" --tail=100 2>/dev/null | grep -qE "database space exceeded|mvcc: database space exceeded"; then
+      echo "  ⚠️  Found 'database space exceeded' error in pod: $pod"
+      space_error_found=1
+    fi
+  done
+  
+  if [ "$space_error_found" -eq 0 ]; then
+    echo "  ✅ No etcd space issues found"
+    return 0
+  fi
+  
+  echo
+  echo "  ❌ Etcd database space exceeded detected!"
+  echo
+  echo "  This requires compacting, defragmenting, and disarming the etcd database."
+  echo
+  printf "  Would you like to fix this automatically? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+  
+  # Read with timeout
+  if read -t $USER_INPUT_TIMEOUT fix_etcd 2>/dev/null; then
+    : # User provided input
+  else
+    # Timeout or read not supported with -t
+    fix_etcd="n"
+    echo
+    echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping etcd fix..."
+  fi
+  
+  if [ "$fix_etcd" != "y" ] && [ "$fix_etcd" != "Y" ]; then
+    echo
+    echo "  ℹ️  Skipping etcd fix. You can manually run these commands:"
+    echo "     1. Get current revision: oc exec -n $PROJECT_CPD_INST_OPERANDS $etcd_pod -- sh -lc 'ETCDCTL_API=3 etcdctl endpoint status --write-out=json'"
+    echo "     2. Compact: oc exec -n $PROJECT_CPD_INST_OPERANDS $etcd_pod -- sh -lc 'ETCDCTL_API=3 etcdctl compact <revision>'"
+    echo "     3. Defrag: oc exec -n $PROJECT_CPD_INST_OPERANDS $etcd_pod -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s defrag'"
+    echo "     4. Disarm: oc exec -n $PROJECT_CPD_INST_OPERANDS $etcd_pod -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s alarm disarm'"
+    return 0
+  fi
+  
+  echo
+  echo "  🔧 Fixing etcd database space issue..."
+  echo
+  
+  # Step 1: Get current revision
+  echo "  1️⃣  Getting current etcd revision..."
+  revision=$($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl endpoint status --write-out=json' 2>/dev/null | jq -r '.[0].Status.header.revision' 2>/dev/null)
+  
+  if [ -z "$revision" ] || [ "$revision" = "null" ]; then
+    echo "  ❌ Failed to get etcd revision"
+    return 1
+  fi
+  
+  echo "  ✅ Current revision: $revision"
+  echo
+  
+  # Step 2: Compact
+  echo "  2️⃣  Compacting etcd database to revision $revision..."
+  if $OCN exec "$etcd_pod" -- sh -lc "ETCDCTL_API=3 etcdctl compact $revision" 2>&1; then
+    echo "  ✅ Compaction completed successfully"
+  else
+    echo "  ⚠️  Compaction may have failed or was already done"
+  fi
+  echo
+  
+  # Step 3: Defragment
+  echo "  3️⃣  Defragmenting etcd database (this may take up to 5 minutes)..."
+  if $OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s defrag' 2>&1; then
+    echo "  ✅ Defragmentation completed successfully"
+  else
+    echo "  ❌ Defragmentation failed"
+    return 1
+  fi
+  echo
+  
+  # Step 4: Disarm alarms
+  echo "  4️⃣  Disarming etcd alarms..."
+  if $OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s alarm disarm' 2>&1; then
+    echo "  ✅ Alarms disarmed successfully"
+  else
+    echo "  ⚠️  Failed to disarm alarms or no alarms present"
+  fi
+  echo
+  
+  echo "  ✅ Etcd database space fix completed!"
+  echo "  ℹ️  You may need to delete the failing Milvus pod to restart it with the fixed etcd"
+  echo
+  
+  return 0
+}
+
 
 handle_bad_pods() {
   tmp_bad="$1"
@@ -1735,6 +1858,10 @@ run_troubleshoot_mode() {
   
   # Check operators first
   check_orchestrate_operators
+  echo
+  
+  # Check and fix Milvus etcd database space issues
+  check_and_fix_milvus_etcd
   echo
   
   # Check pods with remediation options
