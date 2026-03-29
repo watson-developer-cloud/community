@@ -58,6 +58,7 @@
 #    -n, --namespace NAMESPACE   Override operands namespace
 #    --assume-agentic            Assume agentic edition
 #    --assume-agentic-skills     Assume agentic_skills_assistant edition
+#    -y, --yes                   Bypass troubleshoot mode warning prompt
 #    -h, --help                  Show help message
 
 set -eu
@@ -90,6 +91,8 @@ ASSUME_EDITION=""
 
 # Troubleshoot mode - disabled by default
 : "${TROUBLESHOOT_MODE:=0}"
+# Skip troubleshoot warning prompt - disabled by default
+: "${SKIP_WARNING:=0}"
 # Debug mode - disabled by default
 : "${DEBUG_MODE:=0}"
 : "${USER_INPUT_TIMEOUT:=10}"  # Timeout in seconds for user input prompts
@@ -124,6 +127,7 @@ while [ $# -gt 0 ]; do
     --assume-agentic)  ASSUME_EDITION="agentic"; shift 1 ;;
     --assume-agentic-skills)  ASSUME_EDITION="agentic_skills_assistant"; shift 1 ;;
     -t|--troubleshoot) TROUBLESHOOT_MODE=1; shift 1 ;;
+    -y|--yes) SKIP_WARNING=1; shift 1 ;;
     -d|--debug) DEBUG_MODE=1; shift 1 ;;
     -h|--help) sed -n '1,220p' "$0"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
@@ -2383,29 +2387,37 @@ detect_wxo_edition
 
 trap 'echo; echo "Interrupted. Exiting."; exit 1' INT TERM
 
+# Show troubleshoot warning BEFORE header (if troubleshoot mode is enabled)
+if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ "${SKIP_WARNING:-0}" -eq 0 ]; then
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                        TROUBLESHOOT MODE WARNING                             ║"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+  echo "║                                                                              ║"
+  echo "║  Troubleshoot mode performs advanced diagnostic and remediation operations   ║"
+  echo "║  that may impact your running environment. This mode should ONLY be used:    ║"
+  echo "║                                                                              ║"
+  echo "║    • When working directly with IBM Support                                  ║"
+  echo "║    • At the explicit recommendation of IBM Support personnel                 ║"
+  echo "║    • Under the guidance of qualified technical support staff                 ║"
+  echo "║                                                                              ║"
+  echo "║  Do NOT use troubleshoot mode for routine health checks or without           ║"
+  echo "║  proper authorization and supervision from IBM Support.                      ║"
+  echo "║                                                                              ║"
+  echo "║  Tip: Use --yes or -y to bypass this warning in future runs.                 ║"
+  echo "║                                                                              ║"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+  echo ""
+  read -p "Press Enter to continue or Ctrl+C to cancel..." </dev/tty
+  echo ""
+fi
+
 # Print header once at the beginning (includes author credit)
 print_header
 
 # Run troubleshoot mode if enabled - run troubleshoot + full health check in each cycle until healthy
 if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
-  echo
-  echo "=========================================="
-  echo "⚠️  TROUBLESHOOT MODE WARNING"
-  echo "=========================================="
-  echo "Troubleshoot mode performs advanced diagnostic and remediation operations"
-  echo "that may impact your running environment. This mode should ONLY be used:"
-  echo ""
-  echo "  • When working directly with IBM Support"
-  echo "  • At the explicit recommendation of IBM Support personnel"
-  echo "  • Under the guidance of qualified technical support staff"
-  echo ""
-  echo "Do NOT use troubleshoot mode for routine health checks or without"
-  echo "proper authorization and supervision from IBM Support."
-  echo "=========================================="
-  echo ""
-  read -p "Press Enter to continue or Ctrl+C to cancel..." </dev/tty
-  echo ""
-  
+
   TRY=1
   while [ "$TRY" -le "$MAX_TRIES" ]; do
     echo
