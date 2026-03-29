@@ -1697,14 +1697,22 @@ check_and_fix_milvus_etcd() {
   defrag_pid=$!
   
   # Monitor progress while defrag is running
-  echo "     Monitoring database size during defragmentation..."
+  echo "     Monitoring defragmentation progress..."
   monitor_count=0
+  last_size=""
   while kill -0 $defrag_pid 2>/dev/null; do
     sleep 10
     monitor_count=$((monitor_count + 1))
     current_size=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
     if [ -n "$current_size" ]; then
-      echo "     [${monitor_count}0s] Current size: $current_size"
+      if [ "$current_size" != "$last_size" ]; then
+        echo "     [${monitor_count}0s] Database size: $current_size"
+        last_size="$current_size"
+      else
+        echo "     [${monitor_count}0s] Defragmentation in progress... (size: $current_size)"
+      fi
+    else
+      echo "     [${monitor_count}0s] Defragmentation in progress... (etcd locked, cannot check size)"
     fi
   done
   
