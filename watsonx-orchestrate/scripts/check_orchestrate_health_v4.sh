@@ -231,11 +231,143 @@ get_wo_models_info() {
 }
 
 print_header() {
-  print_rule
-  echo "⏱  $(ts)  Checking Orchestrate health in OPERANDS namespace: $PROJECT_CPD_INST_OPERANDS (operators: ${PROJECT_CPD_INST_OPERATORS:-none})"
-  echo "    Edition: ${WXO_EDITION:-unknown}${WXO_DETECT_NOTE:+  (${WXO_DETECT_NOTE})}"
-  get_wo_models_info
-  print_rule
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                 watsonx Orchestrate Health Check Script                     ║"
+  echo "║                         Author: Manu Thapar                                  ║"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+  
+  # Timestamp
+  timestamp="$(ts)"
+  printf "║ Timestamp: %-66s║\n" "$timestamp"
+  echo "║                                                                              ║"
+  
+  # Namespaces
+  printf "║ OPERANDS Namespace: %-55s║\n" "$PROJECT_CPD_INST_OPERANDS"
+  printf "║ OPERATORS Namespace: %-54s║\n" "${PROJECT_CPD_INST_OPERATORS:-none}"
+  echo "║                                                                              ║"
+  
+  # Edition
+  printf "║ Edition: %-68s║\n" "${WXO_EDITION:-unknown}"
+  
+  # Detection method (show CR paths directly without label)
+  if [ -n "${WXO_DETECT_NOTE:-}" ]; then
+    echo "$WXO_DETECT_NOTE" | sed 's/ and /\n/g' | while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      printf "║   • %-70s║\n" "$line"
+    done
+  fi
+  echo "║                                                                              ║"
+  
+  # Get WO CR info
+  OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+  wo_name=`$OCN get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
+  
+  if [ -n "$wo_name" ]; then
+    # Size (no emoji)
+    wo_size=`$OCN get wo "$wo_name" -o jsonpath='{.spec.size}' 2>/dev/null || :`
+    if [ -n "$wo_size" ]; then
+      printf "║ Size: %-71s║\n" "$wo_size"
+      printf "║   • wo.spec.size=%-59s║\n" "$wo_size"
+    else
+      printf "║ Size: %-71s║\n" "medium (default)"
+      printf "║   • wo.spec.size=%-59s║\n" "Not Present"
+    fi
+    
+    # HPA (no emoji)
+    hpa_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.autoScaleConfig}' 2>/dev/null || :`
+    if [ -n "$hpa_enabled" ]; then
+      case "$(echo "$hpa_enabled" | tr '[:upper:]' '[:lower:]')" in
+        true)
+          printf "║ HPA: %-72s║\n" "Enabled"
+          printf "║   • wo.spec.autoScaleConfig=%-51s║\n" "true" ;;
+        false)
+          printf "║ HPA: %-72s║\n" "Disabled"
+          printf "║   • wo.spec.autoScaleConfig=%-51s║\n" "false" ;;
+        *)
+          printf "║ HPA: %-72s║\n" "Disabled (default)"
+          printf "║   • wo.spec.autoScaleConfig=%-51s║\n" "Not Present" ;;
+      esac
+    else
+      printf "║ HPA: %-72s║\n" "Disabled (default)"
+      printf "║   • wo.spec.autoScaleConfig=%-51s║\n" "Not Present"
+    fi
+    
+    # IFM (no emoji)
+    ifm_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.wxolite.enable_ifm}' 2>/dev/null || :`
+    if [ -n "$ifm_enabled" ]; then
+      case "$(echo "$ifm_enabled" | tr '[:upper:]' '[:lower:]')" in
+        true)
+          printf "║ IFM: %-72s║\n" "Enabled"
+          printf "║   • wo.spec.wxolite.enable_ifm=%-47s║\n" "true"
+          models_json=`$OCN get wo "$wo_name" -o jsonpath='{.spec.wxolite.ifm.model_config}' 2>/dev/null || :`
+          if [ -n "$models_json" ] && [ "$models_json" != "{}" ] && [ "$models_json" != "null" ]; then
+            printf "║   %-75s║\n" "Models configured:"
+            tmp_models=`mktemp 2>/dev/null || echo "/tmp/wo_models.$$"`
+            $OCN get wo "$wo_name" -o json 2>/dev/null | \
+              awk '
+                BEGIN { in_model_config=0; model_type=""; model_name=""; indent=0 }
+                /"model_config"[[:space:]]*:/ { in_model_config=1; next }
+                in_model_config {
+                  if ($0 ~ /{/) indent++
+                  if ($0 ~ /}/) {
+                    indent--
+                    if (indent <= 1) { in_model_config=0; next }
+                  }
+                  if (indent == 2 && $0 ~ /"[^"]+"\s*:\s*{/) {
+                    match($0, /"([^"]+)"/, arr)
+                    model_type = arr[1]
+                  }
+                  if (indent == 3 && $0 ~ /"[^"]+"\s*:\s*{/) {
+                    match($0, /"([^"]+)"/, arr)
+                    model_name = arr[1]
+                  }
+                  if (model_name != "" && $0 ~ /"replicas"/) {
+                    match($0, /:\s*([0-9]+)/, arr)
+                    replicas = arr[1]
+                  }
+                  if (model_name != "" && $0 ~ /"shards"/) {
+                    match($0, /:\s*([0-9]+)/, arr)
+                    shards = arr[1]
+                    if (model_type != "" && model_name != "") {
+                      print model_type "|" model_name "|" replicas "|" shards
+                      model_name = ""
+                      replicas = ""
+                      shards = ""
+                    }
+                  }
+                }
+              ' > "$tmp_models" 2>/dev/null || :
+            
+            if [ -s "$tmp_models" ]; then
+              while IFS='|' read -r mtype mname replicas shards; do
+                [ -z "$mname" ] && continue
+                replica_info="${replicas:-default}"
+                shard_info="${shards:-default}"
+                model_line="• ${mtype}/${mname} (r=${replica_info}, s=${shard_info})"
+                printf "║     %-73s║\n" "$model_line"
+              done < "$tmp_models"
+            fi
+            rm -f "$tmp_models"
+          fi
+          ;;
+        false)
+          printf "║ IFM: %-72s║\n" "Disabled"
+          printf "║   • wo.spec.wxolite.enable_ifm=%-47s║\n" "false" ;;
+        *)
+          printf "║ IFM: %-72s║\n" "Disabled (default)"
+          printf "║   • wo.spec.wxolite.enable_ifm=%-47s║\n" "Not Present" ;;
+      esac
+    else
+      printf "║ IFM: %-72s║\n" "Disabled (default)"
+      printf "║   • wo.spec.wxolite.enable_ifm=%-47s║\n" "Not Present"
+    fi
+  else
+    printf "║ ⚠️  %-72s║\n" "WO CR not found - cannot retrieve configuration details"
+  fi
+  
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+  echo ""
 }
 
 section() { echo; echo "▶ $1"; }
@@ -848,6 +980,35 @@ check_wxd_engines() {
 $rows
 EOF
   [ "${bad:-0}" -eq 0 ] && return 0 || return 1
+}
+
+check_obc() {
+  OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+  tmp_obc=`mktemp 2>/dev/null || echo "/tmp/wo_obc.$$"`
+  $OCN get obc --no-headers 2>/dev/null | awk '$1 ~ /^wo-/' > "$tmp_obc" || :
+
+  if [ ! -s "$tmp_obc" ]; then
+    echo "ℹ️ No OBC resources starting with 'wo-' found, skipping"
+    rm -f "$tmp_obc"
+    return 0
+  fi
+
+  bad=0
+  while IFS= read -r line; do
+    name="$(printf '%s\n' "$line" | awk '{print $1}')"
+    phase="$(printf '%s\n' "$line" | awk '{print $3}')"
+    age="$(printf '%s\n' "$line" | awk '{print $4}')"
+    [ -z "${name:-}" ] && continue
+    if [ "${phase:-}" = "Bound" ]; then
+      echo "✅ OBC $name: Phase=Bound Age=${age:-?}"
+    else
+      echo "❌ OBC $name: Phase=${phase:-Unknown} Age=${age:-?}"
+      bad=1
+    fi
+  done < "$tmp_obc"
+
+  rm -f "$tmp_obc"
+  [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
 check_jobs() {
@@ -2014,9 +2175,6 @@ run_troubleshoot_mode() {
   echo "🔍 TROUBLESHOOT MODE"
   echo "=========================================="
   echo
-  echo "Edition: ${WXO_EDITION:-unknown}"
-  echo "Namespace: $PROJECT_CPD_INST_OPERANDS"
-  echo
   
   # Check operators first
   check_orchestrate_operators
@@ -2096,73 +2254,23 @@ run_troubleshoot_mode() {
   echo
 }
 
-# --------------------- Main retry loop ----------------------
-resolve_namespaces
-detect_wxo_edition
-
-trap 'echo; echo "Interrupted. Exiting."; exit 1' INT TERM
-
-# Print author credit
-echo "=========================================="
-echo "📋 watsonx Orchestrate Health Check Script"
-echo "   Author: Manu Thapar"
-echo "   For issues or feature requests, please contact the author"
-echo "=========================================="
-echo ""
-
-# Run troubleshoot mode if enabled - loop until healthy
-if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
-  TROUBLESHOOT_TRY=1
-  while [ "$TROUBLESHOOT_TRY" -le "$MAX_TRIES" ]; do
-    echo
-    echo "=========================================="
-    echo "🔄 TROUBLESHOOT CYCLE $TROUBLESHOOT_TRY of $MAX_TRIES"
-    echo "=========================================="
-    run_troubleshoot_mode
-    
-    # After troubleshoot, run a quick health check to see if we're healthy
-    echo
-    echo "Running health verification..."
-    echo
-    
-    # Quick health check
-    operators_ok=1; if check_orchestrate_operators; then operators_ok=0; fi
-    pods_ok=1; if check_wo_pods; then pods_ok=0; fi
-    
-    # If operators and pods are healthy, we're done
-    if [ "$operators_ok" -eq 0 ] && [ "$pods_ok" -eq 0 ]; then
-      echo
-      echo "🎉 Troubleshooting complete! Orchestrate is healthy after $TROUBLESHOOT_TRY cycle(s)."
-      exit 0
-    fi
-    
-    # Not healthy yet, continue loop
-    if [ "$TROUBLESHOOT_TRY" -lt "$MAX_TRIES" ]; then
-      echo
-      echo "⚠️  System not yet healthy. Running another troubleshoot cycle in ${SLEEP_SECS}s..."
-      echo "   Press Ctrl-C to stop"
-      sleep "$SLEEP_SECS"
-    fi
-    
-    TROUBLESHOOT_TRY=`expr "$TROUBLESHOOT_TRY" + 1`
-  done
+# Function to run all health checks
+# Parameter: skip_troubleshoot_items (optional) - set to 1 to skip items already checked in troubleshoot mode
+run_health_checks() {
+  local skip_troubleshoot_items="${1:-0}"
   
-  echo
-  echo "❌ Exhausted $MAX_TRIES troubleshoot cycles without achieving healthy state."
-  exit 1
-fi
-
-TRY=1
-while [ "$TRY" -le "$MAX_TRIES" ]; do
-  print_header
-
   pods_ok=0; wo_cr_ok=0; wocs_ok=0; wa_cr_ok=0; ifm_cr_ok=0
   docproc_ok=0; de_ok=0; uab_ok=0
   edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0; jobs_ok=0; knative_eventing_ok=0; operators_ok=0
 
-  # Check operators first
-  section "Checking Operators"
-  operators_ok=1; if check_orchestrate_operators; then operators_ok=0; fi
+  # Check operators first (unless skipped in troubleshoot mode)
+  if [ "$skip_troubleshoot_items" -eq 0 ]; then
+    section "Checking Operators"
+    operators_ok=1; if check_orchestrate_operators; then operators_ok=0; fi
+  else
+    # Operators already checked in troubleshoot mode, mark as ok
+    operators_ok=0
+  fi
 
   if [ "${CHECK_WO_PODS:-1}" -eq 1 ]; then pods_ok=1; if check_wo_pods; then pods_ok=0; fi; fi
 
@@ -2195,23 +2303,23 @@ while [ "$TRY" -le "$MAX_TRIES" ]; do
   else
     if [ "${CHECK_WA_CR:-1}"   -eq 1 ]; then wa_cr_ok=1;   if check_wa_cr; then wa_cr_ok=0; fi; fi
     if [ "${CHECK_IFM_CR:-1}" -eq 1 ]; then
-    if is_ifm_enabled_in_wo; then
-      ifm_cr_ok=1; if check_ifm_cr; then ifm_cr_ok=0; fi
-    else
-      echo "ℹ️ IFM disabled in wo CR, skipping"
-    fi
-  fi
-    if [ "${CHECK_DOCPROC:-1}" -eq 1 ]; then
-    if [ "${WXO_EDITION:-unknown}" = "full" ]; then
-      docproc_ok=1; if check_docproc; then docproc_ok=0; fi
-    else
-      if is_docproc_enabled_in_wo; then
-        docproc_ok=1; if check_docproc; then docproc_ok=0; fi
+      if is_ifm_enabled_in_wo; then
+        ifm_cr_ok=1; if check_ifm_cr; then ifm_cr_ok=0; fi
       else
-        echo "ℹ️ DocumentProcessing not enabled in wo CR, skipping"
+        echo "ℹ️ IFM disabled in wo CR, skipping"
       fi
     fi
-  fi
+    if [ "${CHECK_DOCPROC:-1}" -eq 1 ]; then
+      if [ "${WXO_EDITION:-unknown}" = "full" ]; then
+        docproc_ok=1; if check_docproc; then docproc_ok=0; fi
+      else
+        if is_docproc_enabled_in_wo; then
+          docproc_ok=1; if check_docproc; then docproc_ok=0; fi
+        else
+          echo "ℹ️ DocumentProcessing not enabled in wo CR, skipping"
+        fi
+      fi
+    fi
     if [ "${CHECK_DE:-1}"      -eq 1 ]; then de_ok=1;      if check_digital_employees; then de_ok=0; fi; fi
     if [ "${CHECK_UAB_ADS:-1}" -eq 1 ]; then uab_ok=1;     if check_uab_ads; then uab_ok=0; fi; fi
   fi
@@ -2220,58 +2328,109 @@ while [ "$TRY" -le "$MAX_TRIES" ]; do
   if [ "${CHECK_EDB:-1}"   -eq 1 ]; then edb_ok=1;   if check_edb_clusters; then edb_ok=0; fi; fi
   if [ "${CHECK_KAFKA:-1}" -eq 1 ]; then kafka_ok=1; if check_kafka_readiness; then kafka_ok=0; fi; fi
   if [ "${CHECK_REDIS:-1}" -eq 1 ]; then redis_ok=1; if check_redis_cp; then redis_ok=0; fi; fi
-check_obc() {
-  OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
-  tmp_obc=`mktemp 2>/dev/null || echo "/tmp/wo_obc.$$"`
-  $OCN get obc --no-headers 2>/dev/null | awk '$1 ~ /^wo-/' > "$tmp_obc" || :
-
-  if [ ! -s "$tmp_obc" ]; then
-    echo "ℹ️ No OBC resources starting with 'wo-' found, skipping"
-    rm -f "$tmp_obc"
-    return 0
-  fi
-
-  bad=0
-  while IFS= read -r line; do
-    name="$(printf '%s\n' "$line" | awk '{print $1}')"
-    phase="$(printf '%s\n' "$line" | awk '{print $3}')"
-    age="$(printf '%s\n' "$line" | awk '{print $4}')"
-    [ -z "${name:-}" ] && continue
-    if [ "${phase:-}" = "Bound" ]; then
-      echo "✅ OBC $name: Phase=Bound Age=${age:-?}"
-    else
-      echo "❌ OBC $name: Phase=${phase:-Unknown} Age=${age:-?}"
-      bad=1
+  
+  # Check Knative Eventing (unless skipped in troubleshoot mode)
+  if [ "$skip_troubleshoot_items" -eq 0 ]; then
+    section "Checking Knative Eventing (for agentic editions)"
+    if [ "${CHECK_KNATIVE_EVENTING:-1}" -eq 1 ]; then
+      if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] || [ "${WXO_EDITION:-unknown}" = "agentic_skills_assistant" ]; then
+        knative_eventing_ok=1
+        if check_knative_eventing_deployment && check_ibm_events_operator && check_kafka_cluster && check_kafka_user_and_secret && check_knative_kafka; then
+          knative_eventing_ok=0
+        fi
+      else
+        echo "ℹ️ Knative Eventing checks only applicable for agentic_assistant and agentic_skills_assistant editions, skipping"
+        knative_eventing_ok=0
+      fi
     fi
-  done < "$tmp_obc"
-
-  rm -f "$tmp_obc"
-  [ "$bad" -eq 0 ] && return 0 || return 1
-}
+  else
+    # Knative Eventing already checked in troubleshoot mode, mark as ok
+    knative_eventing_ok=0
+  fi
 
   if [ "${CHECK_OBC:-1}"  -eq 1 ]; then obc_ok=1;  if check_obc; then obc_ok=0; fi; fi
   if [ "${CHECK_WXD:-1}"  -eq 1 ]; then wxd_ok=1;  if check_wxd_engines; then wxd_ok=0; fi; fi
+}
 
-  if [ "$operators_ok" -eq 0 ] && [ "$pods_ok" -eq 0 ] && [ "$wo_cr_ok" -eq 0 ] && [ "$wocs_ok" -eq 0 ] \
-     && [ "$wa_cr_ok" -eq 0 ] && [ "$ifm_cr_ok" -eq 0 ] \
-     && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
-     && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
-     && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ]; then
-    echo "🎉 All enabled checks passed on attempt $TRY. Orchestrate is healthy."
-    exit 0
-  fi
+# --------------------- Main retry loop ----------------------
+resolve_namespaces
+detect_wxo_edition
 
-  if [ "$TRY" -lt "$MAX_TRIES" ]; then
+trap 'echo; echo "Interrupted. Exiting."; exit 1' INT TERM
+
+# Print header once at the beginning (includes author credit)
+print_header
+
+# Run troubleshoot mode if enabled - run troubleshoot + full health check in each cycle until healthy
+if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
+  TRY=1
+  while [ "$TRY" -le "$MAX_TRIES" ]; do
     echo
-    echo "🔁 Attempt $TRY failed. Rechecking in ${SLEEP_SECS}s ... Ctrl-C to stop"
-    sleep "$SLEEP_SECS"
+    echo "=========================================="
+    echo "🔄 TROUBLESHOOT + HEALTH CHECK CYCLE $TRY of $MAX_TRIES"
+    echo "=========================================="
+    
+    # Run troubleshoot diagnostics first
+    run_troubleshoot_mode
     echo
-  fi
+    
+    # Now run full health check (skip operators since already checked in troubleshoot)
+    run_health_checks 1
 
-  TRY=`expr "$TRY" + 1`
-done
+    if [ "$operators_ok" -eq 0 ] && [ "$pods_ok" -eq 0 ] && [ "$wo_cr_ok" -eq 0 ] && [ "$wocs_ok" -eq 0 ] \
+       && [ "$wa_cr_ok" -eq 0 ] && [ "$ifm_cr_ok" -eq 0 ] \
+       && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
+       && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
+       && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ]; then
+      echo "🎉 All enabled checks passed on attempt $TRY. Orchestrate is healthy."
+      exit 0
+    fi
 
-echo "❌ Exhausted MAX_TRIES=$MAX_TRIES without passing all enabled checks. Exiting with code 1."
-exit 1
+    if [ "$TRY" -lt "$MAX_TRIES" ]; then
+      echo
+      echo "🔁 Attempt $TRY failed. Rechecking in ${SLEEP_SECS}s ... Ctrl-C to stop"
+      sleep "$SLEEP_SECS"
+      echo
+    fi
+
+    TRY=`expr "$TRY" + 1`
+  done
+
+  echo "❌ Exhausted MAX_TRIES=$MAX_TRIES without passing all enabled checks. Exiting with code 1."
+  exit 1
+else
+  # Regular health check mode (no troubleshooting)
+  TRY=1
+  while [ "$TRY" -le "$MAX_TRIES" ]; do
+    echo
+    echo "=========================================="
+    echo "🔄 HEALTH CHECK CYCLE $TRY of $MAX_TRIES"
+    echo "=========================================="
+
+    # Run health checks
+    run_health_checks
+
+    if [ "$operators_ok" -eq 0 ] && [ "$pods_ok" -eq 0 ] && [ "$wo_cr_ok" -eq 0 ] && [ "$wocs_ok" -eq 0 ] \
+       && [ "$wa_cr_ok" -eq 0 ] && [ "$ifm_cr_ok" -eq 0 ] \
+       && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
+       && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
+       && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ]; then
+      echo "🎉 All enabled checks passed on attempt $TRY. Orchestrate is healthy."
+      exit 0
+    fi
+
+    if [ "$TRY" -lt "$MAX_TRIES" ]; then
+      echo
+      echo "🔁 Attempt $TRY failed. Rechecking in ${SLEEP_SECS}s ... Ctrl-C to stop"
+      sleep "$SLEEP_SECS"
+      echo
+    fi
+
+    TRY=`expr "$TRY" + 1`
+  done
+
+  echo "❌ Exhausted MAX_TRIES=$MAX_TRIES without passing all enabled checks. Exiting with code 1."
+  exit 1
+fi
 
 
