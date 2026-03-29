@@ -1811,14 +1811,46 @@ echo "   For issues or feature requests, please contact the author"
 echo "=========================================="
 echo ""
 
-# Run troubleshoot mode if enabled
+# Run troubleshoot mode if enabled - loop until healthy
 if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
-  run_troubleshoot_mode
+  TROUBLESHOOT_TRY=1
+  while [ "$TROUBLESHOOT_TRY" -le "$MAX_TRIES" ]; do
+    echo
+    echo "=========================================="
+    echo "🔄 TROUBLESHOOT CYCLE $TROUBLESHOOT_TRY of $MAX_TRIES"
+    echo "=========================================="
+    run_troubleshoot_mode
+    
+    # After troubleshoot, run a quick health check to see if we're healthy
+    echo
+    echo "Running health verification..."
+    echo
+    
+    # Quick health check
+    operators_ok=1; if check_orchestrate_operators; then operators_ok=0; fi
+    pods_ok=1; if check_wo_pods; then pods_ok=0; fi
+    
+    # If operators and pods are healthy, we're done
+    if [ "$operators_ok" -eq 0 ] && [ "$pods_ok" -eq 0 ]; then
+      echo
+      echo "🎉 Troubleshooting complete! Orchestrate is healthy after $TROUBLESHOOT_TRY cycle(s)."
+      exit 0
+    fi
+    
+    # Not healthy yet, continue loop
+    if [ "$TROUBLESHOOT_TRY" -lt "$MAX_TRIES" ]; then
+      echo
+      echo "⚠️  System not yet healthy. Running another troubleshoot cycle in ${SLEEP_SECS}s..."
+      echo "   Press Ctrl-C to stop"
+      sleep "$SLEEP_SECS"
+    fi
+    
+    TROUBLESHOOT_TRY=`expr "$TROUBLESHOOT_TRY" + 1`
+  done
+  
   echo
-  echo "Continuing with standard health checks..."
-  echo
-  # Skip pod check in standard health checks since we already checked in troubleshoot mode
-  CHECK_WO_PODS=0
+  echo "❌ Exhausted $MAX_TRIES troubleshoot cycles without achieving healthy state."
+  exit 1
 fi
 
 TRY=1
