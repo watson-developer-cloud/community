@@ -1681,7 +1681,8 @@ trap 'echo; echo "Interrupted. Exiting."; exit 1' INT TERM
 # Print author credit
 echo "=========================================="
 echo "📋 watsonx Orchestrate Health Check Script"
-echo "   For issues or feature requests, please contact Manu Thapar"
+echo "   Author: Manu Thapar"
+echo "   For issues or feature requests, please contact the author"
 echo "=========================================="
 echo ""
 
