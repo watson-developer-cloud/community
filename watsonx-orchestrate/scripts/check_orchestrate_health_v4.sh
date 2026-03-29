@@ -986,6 +986,127 @@ check_knative_eventing_deployment() {
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
+check_orchestrate_operators() {
+  # Check watsonx Orchestrate operators and Watson Assistant operator (for agentic editions)
+  # This function works in both health check and troubleshoot modes
+  bad=0
+  scaled_down_operators=""
+  
+  echo "▶ Checking watsonx Orchestrate Operators"
+  
+  # Check wo-operator in operators namespace
+  if $OC get deployment wo-operator -n "$PROJECT_CPD_INST_OPERATORS" >/dev/null 2>&1; then
+    ready=$($OC get deployment wo-operator -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    desired=$($OC get deployment wo-operator -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
+      echo "  ✅ wo-operator is ready ($ready/$desired replicas)"
+    else
+      if [ "$desired" = "0" ]; then
+        echo "  ⚠️  wo-operator is scaled down (0 replicas)"
+        scaled_down_operators="${scaled_down_operators}wo-operator "
+      else
+        echo "  ❌ wo-operator not ready ($ready/$desired replicas)"
+      fi
+      bad=1
+    fi
+  else
+    echo "  ❌ wo-operator deployment not found in $PROJECT_CPD_INST_OPERATORS"
+    bad=1
+  fi
+  
+  # Check ibm-wxo-componentcontroller-manager in operators namespace
+  if $OC get deployment ibm-wxo-componentcontroller-manager -n "$PROJECT_CPD_INST_OPERATORS" >/dev/null 2>&1; then
+    ready=$($OC get deployment ibm-wxo-componentcontroller-manager -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    desired=$($OC get deployment ibm-wxo-componentcontroller-manager -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
+      echo "  ✅ ibm-wxo-componentcontroller-manager is ready ($ready/$desired replicas)"
+    else
+      if [ "$desired" = "0" ]; then
+        echo "  ⚠️  ibm-wxo-componentcontroller-manager is scaled down (0 replicas)"
+        scaled_down_operators="${scaled_down_operators}ibm-wxo-componentcontroller-manager "
+      else
+        echo "  ❌ ibm-wxo-componentcontroller-manager not ready ($ready/$desired replicas)"
+      fi
+      bad=1
+    fi
+  else
+    echo "  ❌ ibm-wxo-componentcontroller-manager deployment not found in $PROJECT_CPD_INST_OPERATORS"
+    bad=1
+  fi
+  
+  # Check Watson Assistant operator if in agentic-assistant mode
+  if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] || [ "${WXO_EDITION:-unknown}" = "agentic_skills_assistant" ]; then
+    echo
+    echo "▶ Checking Watson Assistant Operator (agentic edition detected)"
+    
+    # Check if WatsonAssistant CR exists
+    wa_exists=$($OC get wa -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | wc -l)
+    if [ "$wa_exists" -gt 0 ]; then
+      # Check Watson Assistant operator deployment
+      wa_operator_found=0
+      for dep_name in ibm-watson-assistant-operator watson-assistant-operator wa-operator assistant-operator; do
+        if $OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" >/dev/null 2>&1; then
+          wa_operator_found=1
+          ready=$($OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+          desired=$($OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+          if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
+            echo "  ✅ Watson Assistant operator ($dep_name) is ready ($ready/$desired replicas)"
+          else
+            if [ "$desired" = "0" ]; then
+              echo "  ⚠️  Watson Assistant operator ($dep_name) is scaled down (0 replicas)"
+              scaled_down_operators="${scaled_down_operators}${dep_name} "
+            else
+              echo "  ❌ Watson Assistant operator ($dep_name) not ready ($ready/$desired replicas)"
+            fi
+            bad=1
+          fi
+          break
+        fi
+      done
+      
+      if [ "$wa_operator_found" -eq 0 ]; then
+        echo "  ❌ Watson Assistant operator deployment not found in $PROJECT_CPD_INST_OPERATORS"
+        bad=1
+      fi
+    else
+      echo "  ℹ️  No WatsonAssistant CR found, skipping operator check"
+    fi
+  fi
+  
+  # In troubleshoot mode ONLY, offer to scale up operators if they're scaled down
+  if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ -n "$scaled_down_operators" ]; then
+    echo
+    echo "⚠️  Scaled down operators detected: $scaled_down_operators"
+    printf "Would you like to scale up these operators to 1 replica? (y/n) [default: n, auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    
+    # Read with timeout
+    if read -t $USER_INPUT_TIMEOUT scale_response </dev/tty 2>/dev/null; then
+      : # User provided input
+    else
+      # Timeout - default to no
+      scale_response="n"
+      echo
+      echo "⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping operator scale-up..."
+    fi
+    
+    if [ "$scale_response" = "y" ] || [ "$scale_response" = "Y" ]; then
+      echo
+      echo "Scaling up operators..."
+      for op in $scaled_down_operators; do
+        echo "  Scaling $op to 1 replica..."
+        $OC scale deployment "$op" -n "$PROJECT_CPD_INST_OPERATORS" --replicas=1
+      done
+      echo
+      echo "Waiting 30 seconds for operators to start..."
+      sleep 30
+      echo "✅ Operators scaled up. Continuing with health checks..."
+    fi
+  fi
+  
+  echo
+  [ "$bad" -eq 0 ] && return 0 || return 1
+}
+
 check_ibm_events_operator() {
   # Check IBM Events Operator - only print failures
   events_ns="ibm-knative-events"
@@ -1602,7 +1723,11 @@ run_troubleshoot_mode() {
   echo "Namespace: $PROJECT_CPD_INST_OPERANDS"
   echo
   
-  # Check pods first with remediation options
+  # Check operators first
+  check_orchestrate_operators
+  echo
+  
+  # Check pods with remediation options
   check_wo_pods_troubleshoot
   echo
   
@@ -1702,7 +1827,11 @@ while [ "$TRY" -le "$MAX_TRIES" ]; do
 
   pods_ok=0; wo_cr_ok=0; wocs_ok=0; wa_cr_ok=0; ifm_cr_ok=0
   docproc_ok=0; de_ok=0; uab_ok=0
-  edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0; jobs_ok=0; knative_eventing_ok=0
+  edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0; jobs_ok=0; knative_eventing_ok=0; operators_ok=0
+
+  # Check operators first
+  section "Checking Operators"
+  operators_ok=1; if check_orchestrate_operators; then operators_ok=0; fi
 
   if [ "${CHECK_WO_PODS:-1}" -eq 1 ]; then pods_ok=1; if check_wo_pods; then pods_ok=0; fi; fi
 
@@ -1792,7 +1921,7 @@ check_obc() {
   if [ "${CHECK_OBC:-1}"  -eq 1 ]; then obc_ok=1;  if check_obc; then obc_ok=0; fi; fi
   if [ "${CHECK_WXD:-1}"  -eq 1 ]; then wxd_ok=1;  if check_wxd_engines; then wxd_ok=0; fi; fi
 
-  if [ "$pods_ok" -eq 0 ] && [ "$wo_cr_ok" -eq 0 ] && [ "$wocs_ok" -eq 0 ] \
+  if [ "$operators_ok" -eq 0 ] && [ "$pods_ok" -eq 0 ] && [ "$wo_cr_ok" -eq 0 ] && [ "$wocs_ok" -eq 0 ] \
      && [ "$wa_cr_ok" -eq 0 ] && [ "$ifm_cr_ok" -eq 0 ] \
      && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
      && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
