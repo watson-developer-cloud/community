@@ -1706,6 +1706,9 @@ check_and_fix_milvus_etcd() {
   monitor_count=0
   last_size=""
   last_mtime=""
+  no_change_count=0
+  stuck_threshold=6  # 60 seconds without changes = likely stuck
+  
   while kill -0 $defrag_pid 2>/dev/null; do
     sleep 10
     monitor_count=$((monitor_count + 1))
@@ -1724,8 +1727,64 @@ check_and_fix_milvus_etcd() {
         echo "     [${monitor_count}0s] Database: ${current_size} (file modified: $(date -d @${current_mtime} '+%H:%M:%S' 2>/dev/null || echo 'recently'))"
         last_size="$current_size"
         last_mtime="$current_mtime"
+        no_change_count=0
       else
-        echo "     [${monitor_count}0s] Defragmentation in progress... (size: $current_size, no changes yet)"
+        no_change_count=$((no_change_count + 1))
+        echo "     [${monitor_count}0s] Defragmentation in progress... (size: $current_size, no changes for ${no_change_count}0s)"
+        
+        # Check if defrag appears stuck
+        if [ $no_change_count -ge $stuck_threshold ]; then
+          echo
+          echo "  ⚠️  Defragmentation appears stuck (no file changes for ${no_change_count}0 seconds)"
+          echo "  ℹ️  This can happen when etcd is severely degraded due to NOSPACE"
+          echo
+          printf "  Would you like to kill defrag and restart the etcd pod? (y/n) [auto-continue in 15s]: "
+          
+          if read -t 15 restart_choice 2>/dev/null; then
+            : # User provided input
+          else
+            restart_choice="n"
+            echo
+            echo "  ⏱️  No input received, continuing to wait for defrag..."
+          fi
+          
+          if [ "$restart_choice" = "y" ] || [ "$restart_choice" = "Y" ]; then
+            echo
+            echo "  🔄 Killing stuck defrag process..."
+            kill $defrag_pid 2>/dev/null || true
+            wait $defrag_pid 2>/dev/null || true
+            
+            echo "  🔄 Restarting etcd pod to clear locks..."
+            $OCN delete pod "$etcd_pod" --grace-period=30
+            
+            echo "  ⏳ Waiting for etcd pod to restart..."
+            sleep 30
+            
+            # Wait for pod to be ready
+            timeout=120
+            start=$(date +%s)
+            while true; do
+              if $OCN get pod "$etcd_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
+                echo "  ✅ Etcd pod restarted successfully"
+                echo
+                echo "  ℹ️  After restart, you may need to:"
+                echo "     1. Re-run the health check script"
+                echo "     2. Try the defrag operation again"
+                echo "     3. Check if NOSPACE alarm is cleared"
+                return 2  # Special return code to indicate restart happened
+              fi
+              sleep 5
+              now=$(date +%s)
+              if [ $((now - start)) -gt $timeout ]; then
+                echo "  ⚠️  Timeout waiting for etcd pod to restart"
+                return 1
+              fi
+            done
+          else
+            echo "  ℹ️  Continuing to wait for defrag to complete..."
+            no_change_count=0  # Reset counter to avoid repeated prompts
+          fi
+        fi
       fi
     else
       echo "     [${monitor_count}0s] Defragmentation in progress... (cannot access database file)"
