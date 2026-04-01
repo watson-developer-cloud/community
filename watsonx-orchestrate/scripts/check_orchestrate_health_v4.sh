@@ -2380,15 +2380,15 @@ run_health_checks() {
   
   # Check Knative Eventing (unless skipped in troubleshoot mode)
   if [ "$skip_troubleshoot_items" -eq 0 ]; then
-    section "Checking Knative Eventing (for agentic editions)"
     if [ "${CHECK_KNATIVE_EVENTING:-1}" -eq 1 ]; then
       if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] || [ "${WXO_EDITION:-unknown}" = "agentic_skills_assistant" ]; then
+        section "Checking Knative Eventing (for agentic editions)"
         knative_eventing_ok=1
         if check_knative_eventing_deployment && check_ibm_events_operator && check_kafka_cluster && check_kafka_user_and_secret && check_knative_kafka; then
           knative_eventing_ok=0
         fi
       else
-        echo "ℹ️ Knative Eventing checks only applicable for agentic_assistant and agentic_skills_assistant editions, skipping"
+        # Not applicable for this edition, skip silently
         knative_eventing_ok=0
       fi
     fi
