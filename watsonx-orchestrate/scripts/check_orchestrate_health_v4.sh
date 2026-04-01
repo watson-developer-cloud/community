@@ -1865,7 +1865,7 @@ check_and_fix_milvus_etcd() {
   # Step 2: Compact (only if we got a valid revision)
   if [ "$skip_compact" = false ]; then
     echo "  2️⃣  Compacting etcd database to revision $revision (timeout: 60s)..."
-    compact_output=$($OCN exec "$etcd_pod" -- sh -lc "ETCDCTL_API=3 etcdctl --command-timeout=60s compact $revision" 2>&1)
+    compact_output=$($OCN exec "$etcd_pod" -- sh -lc "ETCDCTL_API=3 etcdctl --command-timeout=300s compact $revision" 2>&1)
     compact_exit=$?
     
     if [ $compact_exit -eq 0 ]; then
