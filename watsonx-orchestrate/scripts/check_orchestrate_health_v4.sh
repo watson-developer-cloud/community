@@ -1238,6 +1238,26 @@ check_orchestrate_operators() {
     bad=1
   fi
   
+  # Check IBM Events Operator in operators namespace
+  if $OC get deployment -n "$PROJECT_CPD_INST_OPERATORS" -o name 2>/dev/null | grep -qE 'ibm-events-(cluster-)?operator'; then
+    events_deploy=$($OC get deployment -n "$PROJECT_CPD_INST_OPERATORS" -o name 2>/dev/null | grep -E 'ibm-events-(cluster-)?operator' | head -n1 | sed 's|deployment.apps/||')
+    ready=$($OC get deployment "$events_deploy" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    desired=$($OC get deployment "$events_deploy" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
+      echo "  ✅ IBM Events Operator ($events_deploy) is ready ($ready/$desired replicas)"
+    else
+      if [ "$desired" = "0" ]; then
+        echo "  ⚠️  IBM Events Operator ($events_deploy) is scaled down (0 replicas)"
+        scaled_down_operators="${scaled_down_operators}${events_deploy} "
+      else
+        echo "  ❌ IBM Events Operator ($events_deploy) not ready ($ready/$desired replicas)"
+      fi
+      bad=1
+    fi
+  else
+    echo "  ℹ️  IBM Events Operator deployment not found in $PROJECT_CPD_INST_OPERATORS (may be in ibm-knative-events namespace)"
+  fi
+  
   # Check Watson Assistant operator if in agentic-assistant mode
   if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] || [ "${WXO_EDITION:-unknown}" = "agentic_skills_assistant" ]; then
     echo
