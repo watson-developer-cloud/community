@@ -1888,7 +1888,7 @@ check_and_fix_milvus_etcd() {
     echo
   fi
   
-  # Step 3: Defragment (with live size tracking)
+  # Step 3: Defragment (with live size tracking and retry logic)
   echo "  3️⃣  Defragmenting etcd database (this may take up to 5 minutes)..."
   
   # Get database size before defrag (try multiple paths)
@@ -1905,135 +1905,162 @@ check_and_fix_milvus_etcd() {
     echo "     (Unable to check size - may be inaccessible due to NOSPACE)"
   fi
   
-  # Run defragmentation in background with progress monitoring
-  echo "  🔧 Running defragmentation with live progress monitoring..."
+  # Retry defragmentation up to 3 times
+  max_defrag_attempts=3
+  defrag_attempt=1
+  defrag_success=false
   
-  # Create temp file for defrag output
-  defrag_log=$(mktemp 2>/dev/null || echo "/tmp/defrag_log.$$")
-  
-  # Start defrag in background
-  ($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s defrag' > "$defrag_log" 2>&1) &
-  defrag_pid=$!
-  
-  # Monitor progress while defrag is running
-  echo "     Monitoring defragmentation progress..."
-  monitor_count=0
-  last_size=""
-  last_mtime=""
-  no_change_count=0
-  stuck_threshold=6  # 60 seconds without changes = likely stuck
-  
-  while kill -0 $defrag_pid 2>/dev/null; do
-    sleep 10
-    monitor_count=$((monitor_count + 1))
+  while [ $defrag_attempt -le $max_defrag_attempts ] && [ "$defrag_success" = false ]; do
+    if [ $defrag_attempt -gt 1 ]; then
+      echo
+      echo "  🔄 Retry attempt $defrag_attempt of $max_defrag_attempts..."
+      sleep 5
+    fi
     
-    # Check database file size and modification time
-    db_info=$($OCN exec "$etcd_pod" -- sh -lc 'stat -c "%s %Y" /etcd/member/snap/db 2>/dev/null || stat -c "%s %Y" /bitnami/etcd/data/member/snap/db 2>/dev/null' 2>/dev/null)
-    current_size_bytes=$(echo "$db_info" | awk '{print $1}')
-    current_mtime=$(echo "$db_info" | awk '{print $2}')
+    # Run defragmentation in background with progress monitoring
+    echo "  🔧 Running defragmentation with live progress monitoring (attempt $defrag_attempt/$max_defrag_attempts)..."
     
-    if [ -n "$current_size_bytes" ]; then
-      # Convert bytes to human readable
-      current_size_mb=$((current_size_bytes / 1024 / 1024))
-      current_size="${current_size_mb}M"
+    # Create temp file for defrag output
+    defrag_log=$(mktemp 2>/dev/null || echo "/tmp/defrag_log.$$")
+    
+    # Start defrag in background
+    ($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s defrag' > "$defrag_log" 2>&1) &
+    defrag_pid=$!
+    
+    # Monitor progress while defrag is running
+    echo "     Monitoring defragmentation progress..."
+    monitor_count=0
+    last_size=""
+    last_mtime=""
+    no_change_count=0
+    stuck_threshold=6  # 60 seconds without changes = likely stuck
+    
+    while kill -0 $defrag_pid 2>/dev/null; do
+      sleep 10
+      monitor_count=$((monitor_count + 1))
       
-      if [ "$current_size" != "$last_size" ] || [ "$current_mtime" != "$last_mtime" ]; then
-        echo "     [${monitor_count}0s] Database: ${current_size} (file modified: $(date -d @${current_mtime} '+%H:%M:%S' 2>/dev/null || echo 'recently'))"
-        last_size="$current_size"
-        last_mtime="$current_mtime"
-        no_change_count=0
-      else
-        no_change_count=$((no_change_count + 1))
-        echo "     [${monitor_count}0s] Defragmentation in progress... (size: $current_size, no changes for ${no_change_count}0s)"
+      # Check database file size and modification time
+      db_info=$($OCN exec "$etcd_pod" -- sh -lc 'stat -c "%s %Y" /etcd/member/snap/db 2>/dev/null || stat -c "%s %Y" /bitnami/etcd/data/member/snap/db 2>/dev/null' 2>/dev/null)
+      current_size_bytes=$(echo "$db_info" | awk '{print $1}')
+      current_mtime=$(echo "$db_info" | awk '{print $2}')
+      
+      if [ -n "$current_size_bytes" ]; then
+        # Convert bytes to human readable
+        current_size_mb=$((current_size_bytes / 1024 / 1024))
+        current_size="${current_size_mb}M"
         
-        # Check if defrag appears stuck
-        if [ $no_change_count -ge $stuck_threshold ]; then
-          echo
-          echo "  ⚠️  Defragmentation appears stuck (no file changes for ${no_change_count}0 seconds)"
-          echo "  ℹ️  This can happen when etcd is severely degraded due to NOSPACE"
-          echo
-          printf "  Would you like to kill defrag and restart the etcd pod? (y/n) [auto-continue in 15s]: "
+        if [ "$current_size" != "$last_size" ] || [ "$current_mtime" != "$last_mtime" ]; then
+          echo "     [${monitor_count}0s] Database: ${current_size} (file modified: $(date -d @${current_mtime} '+%H:%M:%S' 2>/dev/null || echo 'recently'))"
+          last_size="$current_size"
+          last_mtime="$current_mtime"
+          no_change_count=0
+        else
+          no_change_count=$((no_change_count + 1))
+          echo "     [${monitor_count}0s] Defragmentation in progress... (size: $current_size, no changes for ${no_change_count}0s)"
           
-          if read -t 15 restart_choice 2>/dev/null; then
-            : # User provided input
-          else
-            restart_choice="n"
+          # Check if defrag appears stuck
+          if [ $no_change_count -ge $stuck_threshold ]; then
             echo
-            echo "  ⏱️  No input received, continuing to wait for defrag..."
+            echo "  ⚠️  Defragmentation appears stuck (no file changes for ${no_change_count}0 seconds)"
+            echo "  ℹ️  This can happen when etcd is severely degraded due to NOSPACE"
+            echo
+            printf "  Would you like to kill defrag and restart the etcd pod? (y/n) [auto-continue in 15s]: "
+            
+            if read -t 15 restart_choice 2>/dev/null; then
+              : # User provided input
+            else
+              restart_choice="n"
+              echo
+              echo "  ⏱️  No input received, continuing to wait for defrag..."
+            fi
+            
+            if [ "$restart_choice" = "y" ] || [ "$restart_choice" = "Y" ]; then
+              echo
+              echo "  🔄 Killing stuck defrag process..."
+              kill $defrag_pid 2>/dev/null || true
+              wait $defrag_pid 2>/dev/null || true
+              
+              echo "  🔄 Restarting etcd pod to clear locks..."
+              $OCN delete pod "$etcd_pod" --grace-period=30
+              
+              echo "  ⏳ Waiting for etcd pod to restart..."
+              sleep 30
+              
+              # Wait for pod to be ready
+              timeout=120
+              start=$(date +%s)
+              while true; do
+                if $OCN get pod "$etcd_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
+                  echo "  ✅ Etcd pod restarted successfully"
+                  echo
+                  echo "  ℹ️  After restart, you may need to:"
+                  echo "     1. Re-run the health check script"
+                  echo "     2. Try the defrag operation again"
+                  echo "     3. Check if NOSPACE alarm is cleared"
+                  return 2  # Special return code to indicate restart happened
+                fi
+                sleep 5
+                now=$(date +%s)
+                if [ $((now - start)) -gt $timeout ]; then
+                  echo "  ⚠️  Timeout waiting for etcd pod to restart"
+                  return 1
+                fi
+              done
+            else
+              echo "  ℹ️  Continuing to wait for defrag to complete..."
+              no_change_count=0  # Reset counter to avoid repeated prompts
+            fi
           fi
-          
-          if [ "$restart_choice" = "y" ] || [ "$restart_choice" = "Y" ]; then
-            echo
-            echo "  🔄 Killing stuck defrag process..."
-            kill $defrag_pid 2>/dev/null || true
-            wait $defrag_pid 2>/dev/null || true
-            
-            echo "  🔄 Restarting etcd pod to clear locks..."
-            $OCN delete pod "$etcd_pod" --grace-period=30
-            
-            echo "  ⏳ Waiting for etcd pod to restart..."
-            sleep 30
-            
-            # Wait for pod to be ready
-            timeout=120
-            start=$(date +%s)
-            while true; do
-              if $OCN get pod "$etcd_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
-                echo "  ✅ Etcd pod restarted successfully"
-                echo
-                echo "  ℹ️  After restart, you may need to:"
-                echo "     1. Re-run the health check script"
-                echo "     2. Try the defrag operation again"
-                echo "     3. Check if NOSPACE alarm is cleared"
-                return 2  # Special return code to indicate restart happened
-              fi
-              sleep 5
-              now=$(date +%s)
-              if [ $((now - start)) -gt $timeout ]; then
-                echo "  ⚠️  Timeout waiting for etcd pod to restart"
-                return 1
-              fi
-            done
-          else
-            echo "  ℹ️  Continuing to wait for defrag to complete..."
-            no_change_count=0  # Reset counter to avoid repeated prompts
+        fi
+      else
+        echo "     [${monitor_count}0s] Defragmentation in progress... (cannot access database file)"
+      fi
+    done
+    
+    # Wait for defrag to complete and get exit code
+    wait $defrag_pid
+    defrag_exit=$?
+    defrag_output=$(cat "$defrag_log" 2>/dev/null)
+    rm -f "$defrag_log"
+    
+    if [ $defrag_exit -eq 0 ]; then
+      echo "  ✅ Defragmentation completed successfully"
+      defrag_success=true
+      
+      # Get final database size
+      sleep 2  # Brief pause to let filesystem update
+      db_size_after=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /etcd/member 2>/dev/null || du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
+      db_file_after=$($OCN exec "$etcd_pod" -- sh -lc 'ls -lh /etcd/member/snap/db 2>/dev/null || ls -lh /bitnami/etcd/data/member/snap/db 2>/dev/null' 2>/dev/null | awk '{print $5}')
+      
+      if [ -n "$db_size_after" ]; then
+        echo "     📊 Final database directory size: $db_size_after"
+        if [ -n "$db_file_after" ]; then
+          echo "     📊 Final database file size: $db_file_after"
+        fi
+        if [ -n "$db_size_before" ]; then
+          echo "     ✨ Space reclaimed: $db_size_before → $db_size_after"
+          if [ -n "$db_file_before" ] && [ -n "$db_file_after" ]; then
+            echo "     ✨ File size change: $db_file_before → $db_file_after"
           fi
         fi
       fi
     else
-      echo "     [${monitor_count}0s] Defragmentation in progress... (cannot access database file)"
+      echo "  ❌ Defragmentation failed (attempt $defrag_attempt/$max_defrag_attempts)"
+      echo "     Output: $defrag_output"
+      
+      if [ $defrag_attempt -lt $max_defrag_attempts ]; then
+        echo "  ℹ️  Will retry defragmentation..."
+      else
+        echo "  ❌ All defragmentation attempts exhausted"
+        return 1
+      fi
     fi
+    
+    defrag_attempt=$((defrag_attempt + 1))
   done
   
-  # Wait for defrag to complete and get exit code
-  wait $defrag_pid
-  defrag_exit=$?
-  defrag_output=$(cat "$defrag_log" 2>/dev/null)
-  rm -f "$defrag_log"
-  
-  if [ $defrag_exit -eq 0 ]; then
-    echo "  ✅ Defragmentation completed successfully"
-    
-    # Get final database size
-    sleep 2  # Brief pause to let filesystem update
-    db_size_after=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /etcd/member 2>/dev/null || du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
-    db_file_after=$($OCN exec "$etcd_pod" -- sh -lc 'ls -lh /etcd/member/snap/db 2>/dev/null || ls -lh /bitnami/etcd/data/member/snap/db 2>/dev/null' 2>/dev/null | awk '{print $5}')
-    
-    if [ -n "$db_size_after" ]; then
-      echo "     📊 Final database directory size: $db_size_after"
-      if [ -n "$db_file_after" ]; then
-        echo "     📊 Final database file size: $db_file_after"
-      fi
-      if [ -n "$db_size_before" ]; then
-        echo "     ✨ Space reclaimed: $db_size_before → $db_size_after"
-        if [ -n "$db_file_before" ] && [ -n "$db_file_after" ]; then
-          echo "     ✨ File size change: $db_file_before → $db_file_after"
-        fi
-      fi
-    fi
-  else
-    echo "  ❌ Defragmentation failed"
-    echo "     Output: $defrag_output"
+  if [ "$defrag_success" = false ]; then
+    echo "  ❌ Defragmentation failed after $max_defrag_attempts attempts"
     return 1
   fi
   echo
