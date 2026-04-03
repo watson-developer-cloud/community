@@ -1,4 +1,5 @@
 #!/bin/sh
+# vim: set filetype=sh:
 #
 # watsonx Orchestrate Health Check Script with Troubleshoot Mode
 #
@@ -75,6 +76,7 @@ ASSUME_EDITION=""
 
 # Enable or disable individual checks 1 enable, 0 disable
 : "${CHECK_WO_PODS:=1}"
+: "${CHECK_ALL_OPERAND_PODS:=1}"
 : "${CHECK_WO_CR:=1}"
 : "${CHECK_WOCS:=1}"
 : "${CHECK_WA_CR:=1}"
@@ -87,6 +89,7 @@ ASSUME_EDITION=""
 : "${CHECK_REDIS:=1}"
 : "${CHECK_WXD:=1}"
 : "${CHECK_OBC:=1}"
+: "${CHECK_STORAGE_PODS:=1}"
 : "${CHECK_JOBS:=1}"
 : "${CHECK_KNATIVE_EVENTING:=1}"
 
@@ -285,13 +288,17 @@ show_current_config() {
   echo "  1. Size: ${size:-medium}"
   
   # Get HPA status
-  local hpa=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.autoScaleConfig}' 2>/dev/null || echo "false")
-  echo "  2. HPA (autoScaleConfig): $hpa"
-  
+  local hpa=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.autoScaleConfig}' 2>/dev/null || echo "")
+  if [ -z "$hpa" ]; then
+    echo "  2. HPA (autoScaleConfig): false (default)"
+  else
+    echo "  2. HPA (autoScaleConfig): $hpa"
+  fi
+
   # Get DocProc status
   local docproc=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.docproc.enabled}' 2>/dev/null || echo "not set")
   echo "  3. DocProc Enabled: $docproc"
-  
+
   # Get image digest overrides
   echo "  4. Image Digest Overrides:"
   local digests=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.image.digestOverrides}' 2>/dev/null)
@@ -301,7 +308,7 @@ show_current_config() {
     $OC -n "$ns" get wo "$wo_name" -o json 2>/dev/null | \
       jq -r '.spec.image.digestOverrides // {} | to_entries[] | "     - \(.key): \(.value)"' 2>/dev/null || echo "     (Unable to parse)"
   fi
-  
+
   # Get sizeMapping (component-specific replicas and resources)
   echo "  5. Component Size Mappings (sizeMapping):"
   local sizemapping=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.sizeMapping}' 2>/dev/null)
@@ -309,7 +316,15 @@ show_current_config() {
     echo "     None configured (using defaults from size)"
   else
     $OC -n "$ns" get wo "$wo_name" -o json 2>/dev/null | \
-      jq -r '.spec.sizeMapping // {} | to_entries[] | "     - \(.key):\n       replicas: \(.value.replicas // "not set")\n       resources: \(if .value.resources then "configured" else "not set" end)"' 2>/dev/null || echo "     (Unable to parse)"
+      jq -r '
+        .spec.sizeMapping // {} | to_entries[] |
+        "     - " + .key + ":" +
+        "\n       replicas    : " + (.value.replicas | if . then tostring else "not set" end) +
+        "\n       cpu request : " + (.value.resources.requests.cpu  // "not set") +
+        "\n       cpu limit   : " + (.value.resources.limits.cpu    // "not set") +
+        "\n       mem request : " + (.value.resources.requests.memory // "not set") +
+        "\n       mem limit   : " + (.value.resources.limits.memory   // "not set")
+      ' 2>/dev/null || echo "     (Unable to parse)"
   fi
   
   echo ""
@@ -324,37 +339,40 @@ modify_size() {
   local current_size=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.size}' 2>/dev/null || echo "")
   
   echo ""
-  echo "Available sizes: starter, small_mincpureq, small, medium, large"
+  echo "Select new size:"
+  echo "  1) starter"
+  echo "  2) small_mincpureq"
+  echo "  3) small"
+  echo "  4) medium"
+  echo "  5) large"
   if [ -z "$current_size" ]; then
     echo "Current size: medium (default - not explicitly set)"
   else
     echo "Current size: $current_size"
   fi
-  echo -n "Enter new size (or 'cancel' to skip): "
-  read -r new_size
+  printf "Enter number (1-5) or 'cancel' to skip: "
+  read -r size_choice
   
-  if [ "$new_size" = "cancel" ] || [ -z "$new_size" ]; then
-    echo "Skipped."
-    return
-  fi
-  
-  case "$new_size" in
-    starter|small_mincpureq|small|medium|large)
-      # Check if already set to the desired value
-      if [ "$new_size" = "$current_size" ]; then
-        echo "ℹ️  Size is already set to: $new_size. No changes needed."
-      elif [ -z "$current_size" ] && [ "$new_size" = "medium" ]; then
-        echo "ℹ️  Size is already medium (default). No changes needed."
-      else
-        echo "Updating size to: $new_size"
-        $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"size\":\"$new_size\"}}"
-        echo "✓ Size updated successfully"
-      fi
-      ;;
-    *)
-      echo "❌ Invalid size. Must be one of: starter, small_mincpureq, small, medium, large"
-      ;;
+  case "$size_choice" in
+    1) new_size="starter" ;;
+    2) new_size="small_mincpureq" ;;
+    3) new_size="small" ;;
+    4) new_size="medium" ;;
+    5) new_size="large" ;;
+    cancel|"") echo "Skipped."; return ;;
+    *) echo "❌ Invalid choice. Please enter a number 1-5."; return ;;
   esac
+  
+  # Check if already set to the desired value
+  if [ "$new_size" = "$current_size" ]; then
+    echo "ℹ️  Size is already set to: $new_size. No changes needed."
+  elif [ -z "$current_size" ] && [ "$new_size" = "medium" ]; then
+    echo "ℹ️  Size is already medium (default). No changes needed."
+  else
+    echo "Updating size to: $new_size"
+    $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"size\":\"$new_size\"}}"
+    echo "✓ Size updated successfully"
+  fi
 }
 
 # Function to toggle HPA
@@ -371,31 +389,28 @@ modify_hpa() {
   else
     echo "Current HPA (autoScaleConfig): $current"
   fi
-  echo -n "Enable HPA? (true/false or 'cancel' to skip): "
-  read -r new_hpa
+  echo "  1) Enable HPA"
+  echo "  2) Disable HPA"
+  printf "Select option (1-2) or 'cancel' to skip: "
+  read -r hpa_choice
   
-  if [ "$new_hpa" = "cancel" ] || [ -z "$new_hpa" ]; then
-    echo "Skipped."
-    return
-  fi
-  
-  case "$new_hpa" in
-    true|false)
-      # Check if already set to the desired value
-      if [ "$new_hpa" = "$current" ]; then
-        echo "ℹ️  HPA is already set to: $new_hpa. No changes needed."
-      elif [ -z "$current" ] && [ "$new_hpa" = "false" ]; then
-        echo "ℹ️  HPA is already disabled (default). No changes needed."
-      else
-        echo "Updating HPA to: $new_hpa"
-        $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"autoScaleConfig\":$new_hpa}}"
-        echo "✓ HPA updated successfully"
-      fi
-      ;;
-    *)
-      echo "❌ Invalid value. Must be 'true' or 'false'"
-      ;;
+  case "$hpa_choice" in
+    1) new_hpa="true" ;;
+    2) new_hpa="false" ;;
+    cancel|"") echo "Skipped."; return ;;
+    *) echo "❌ Invalid choice. Please enter 1 or 2."; return ;;
   esac
+  
+  # Check if already set to the desired value
+  if [ "$new_hpa" = "$current" ]; then
+    echo "ℹ️  HPA is already set to: $new_hpa. No changes needed."
+  elif [ -z "$current" ] && [ "$new_hpa" = "false" ]; then
+    echo "ℹ️  HPA is already disabled (default). No changes needed."
+  else
+    echo "Updating HPA to: $new_hpa"
+    $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"autoScaleConfig\":$new_hpa}}"
+    echo "✓ HPA updated successfully"
+  fi
 }
 
 # Function to toggle DocProc
@@ -407,218 +422,443 @@ modify_docproc() {
   
   echo ""
   echo "Current DocProc enabled: $current"
-  echo -n "Enable DocProc? (true/false or 'cancel' to skip): "
-  read -r new_docproc
+  echo "  1) Enable DocProc"
+  echo "  2) Disable DocProc"
+  printf "Select option (1-2) or 'cancel' to skip: "
+  read -r docproc_choice
   
-  if [ "$new_docproc" = "cancel" ] || [ -z "$new_docproc" ]; then
-    echo "Skipped."
-    return
-  fi
-  
-  case "$new_docproc" in
-    true|false)
-      echo "Updating DocProc to: $new_docproc"
-      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"docproc\":{\"enabled\":$new_docproc}}}"
-      echo "✓ DocProc updated successfully"
-      ;;
-    *)
-      echo "❌ Invalid value. Must be 'true' or 'false'"
-      ;;
+  case "$docproc_choice" in
+    1) new_docproc="true" ;;
+    2) new_docproc="false" ;;
+    cancel|"") echo "Skipped."; return ;;
+    *) echo "❌ Invalid choice. Please enter 1 or 2."; return ;;
   esac
+  
+  echo "Updating DocProc to: $new_docproc"
+  $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"docproc\":{\"enabled\":$new_docproc}}}"
+  echo "✓ DocProc updated successfully"
 }
 
 # Function to add/modify image digest
 modify_image_digest() {
   local wo_name="$1"
   local ns="$2"
-  
+
+  # ---- Show current digest overrides ----
   echo ""
   echo "Image Digest Override Management"
   echo "--------------------------------"
-  echo "1. Add/Update digest override"
-  echo "2. Remove digest override"
-  echo "3. Cancel"
-  echo -n "Select option (1-3): "
+  echo "Current digest overrides:"
+  local digests_json
+  digests_json=$($OC -n "$ns" get wo "$wo_name" \
+    -o jsonpath='{.spec.image.digestOverrides}' 2>/dev/null || echo "")
+  if [ -z "$digests_json" ] || [ "$digests_json" = "{}" ] || [ "$digests_json" = "null" ] || [ -z "$digests_json" ]; then
+    echo "  (none configured)"
+  else
+    # Parse key:value pairs using awk - output idx|name|sha for later reuse
+    local tmp_digests
+    tmp_digests=$(mktemp 2>/dev/null || echo "/tmp/wo_digests.$$")
+    $OC -n "$ns" get wo "$wo_name" -o json 2>/dev/null | \
+      awk '
+        BEGIN { in_do=0; idx=0 }
+        /"digestOverrides"[[:space:]]*:/ { in_do=1; next }
+        in_do {
+          if ($0 ~ /^[[:space:]]*}/) { in_do=0; next }
+          if (match($0, /"([^"]+)"[[:space:]]*:[[:space:]]*"([^"]+)"/, arr)) {
+            idx++
+            print idx "|" arr[1] "|" arr[2]
+          }
+        }
+      ' > "$tmp_digests" 2>/dev/null
+    if [ -s "$tmp_digests" ]; then
+      printf "  %-30s %s\n" "Image" "Current SHA"
+      printf "  %-30s %s\n" "-----" "-----------"
+      while IFS='|' read -r didx dname dsha; do
+        printf "  %-30s %s\n" "$dname" "$dsha"
+      done < "$tmp_digests"
+    else
+      echo "  (none configured)"
+    fi
+  fi
+
+  echo ""
+  echo "  1) Add/Update digest override"
+  echo "  2) Remove digest override"
+  echo "  3) Cancel"
+  printf "Select option (1-3): "
   read -r digest_option
-  
+
   case "$digest_option" in
     1)
-      echo -n "Enter image name (e.g., wo-ui): "
+      echo ""
+      printf "Enter image name (e.g., wo-ui): "
       read -r image_name
       if [ -z "$image_name" ]; then
         echo "❌ Image name cannot be empty"
+        rm -f "$tmp_digests"
         return
       fi
-      
-      echo -n "Enter digest (e.g., sha256:abc123...): "
+
+      # Show current SHA for this image if it exists
+      local current_sha
+      current_sha=$($OC -n "$ns" get wo "$wo_name" \
+        -o jsonpath="{.spec.image.digestOverrides.$image_name}" 2>/dev/null || echo "")
+      if [ -n "$current_sha" ]; then
+        echo "  Current SHA: $current_sha"
+      else
+        echo "  Current SHA: (not set)"
+      fi
+
+      printf "Enter new digest (sha256:...): "
       read -r digest_value
       if [ -z "$digest_value" ]; then
         echo "❌ Digest cannot be empty"
+        rm -f "$tmp_digests"
         return
       fi
-      
-      echo "Adding/Updating digest override for $image_name"
-      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"image\":{\"digestOverrides\":{\"$image_name\":\"$digest_value\"}}}}"
+
+      echo "Updating digest override for $image_name..."
+      $OC -n "$ns" patch wo "$wo_name" --type=merge \
+        -p "{\"spec\":{\"image\":{\"digestOverrides\":{\"$image_name\":\"$digest_value\"}}}}"
       echo "✓ Digest override updated successfully"
       ;;
     2)
-      echo -n "Enter image name to remove: "
-      read -r image_name
-      if [ -z "$image_name" ]; then
-        echo "❌ Image name cannot be empty"
+      echo ""
+      # Build remove menu from existing overrides
+      if [ ! -s "$tmp_digests" ]; then
+        echo "ℹ️  No digest overrides are currently configured."
+        rm -f "$tmp_digests"
         return
       fi
-      
-      echo "Removing digest override for $image_name"
-      $OC -n "$ns" patch wo "$wo_name" --type=json -p "[{\"op\":\"remove\",\"path\": \"/spec/image/digestOverrides/$image_name\"}]" 2>/dev/null
-      echo "✓ Digest override removed (if it existed)"
+      echo "Select image to remove:"
+      while IFS='|' read -r didx dname dsha; do
+        printf "  %s) %-30s %s\n" "$didx" "$dname" "$dsha"
+      done < "$tmp_digests"
+      echo ""
+      printf "Enter number (or 'cancel'): "
+      read -r remove_choice
+      [ "$remove_choice" = "cancel" ] || [ -z "$remove_choice" ] && { echo "Skipped."; rm -f "$tmp_digests"; return; }
+      local remove_name
+      remove_name=$(awk -F'|' -v n="$remove_choice" '$1==n{print $2}' "$tmp_digests")
+      if [ -z "$remove_name" ]; then
+        echo "❌ Invalid selection."
+        rm -f "$tmp_digests"
+        return
+      fi
+      echo "Removing digest override for $remove_name..."
+      $OC -n "$ns" patch wo "$wo_name" --type=json \
+        -p "[{\"op\":\"remove\",\"path\":\"/spec/image/digestOverrides/$remove_name\"}]" 2>/dev/null
+      echo "✓ Digest override removed"
       ;;
     3|*)
       echo "Cancelled."
       ;;
   esac
+  rm -f "$tmp_digests"
 }
 
 # Function to modify component replicas and resources
+# Helper: build list of wo-* deployments and statefulsets with current replicas
+_list_wo_components() {
+  local ns="$1"
+  # Collect deployments
+  $OC -n "$ns" get deployments --no-headers 2>/dev/null | awk '$1 ~ /^wo-/ {print $1" "$2}' | \
+    while read cname ready; do
+      current=$(echo "$ready" | awk -F/ '{print $2}')
+      echo "deploy|$cname|${current:-?}"
+    done
+  # Collect statefulsets
+  $OC -n "$ns" get statefulsets --no-headers 2>/dev/null | awk '$1 ~ /^wo-/ {print $1" "$2}' | \
+    while read cname ready; do
+      current=$(echo "$ready" | awk -F/ '{print $2}')
+      echo "sts|$cname|${current:-?}"
+    done
+}
+
+# Helper: get current resource values for a component (deployment or sts)
+_get_component_resources() {
+  local ns="$1"
+  local cname="$2"
+  local kind
+  # Detect kind
+  if $OC -n "$ns" get deployment "$cname" >/dev/null 2>&1; then
+    kind="deployment"
+  else
+    kind="statefulset"
+  fi
+  local cpu_req mem_req cpu_lim mem_lim
+  cpu_req=$($OC -n "$ns" get "$kind" "$cname" \
+    -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null || echo "")
+  mem_req=$($OC -n "$ns" get "$kind" "$cname" \
+    -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>/dev/null || echo "")
+  cpu_lim=$($OC -n "$ns" get "$kind" "$cname" \
+    -o jsonpath='{.spec.template.spec.containers[0].resources.limits.cpu}' 2>/dev/null || echo "")
+  mem_lim=$($OC -n "$ns" get "$kind" "$cname" \
+    -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}' 2>/dev/null || echo "")
+  echo "${cpu_req:-not set}|${mem_req:-not set}|${cpu_lim:-not set}|${mem_lim:-not set}"
+}
+
 modify_component_sizing() {
   local wo_name="$1"
   local ns="$2"
-  
+
   echo ""
   echo "Component Sizing (sizeMapping) Management"
   echo "----------------------------------------"
-  echo "This allows you to override replicas and resources for specific components."
-  echo ""
-  echo -n "Enter component name (e.g., wo-ui, wo-api, or 'cancel' to skip): "
-  read -r component_name
-  
-  if [ "$component_name" = "cancel" ] || [ -z "$component_name" ]; then
-    echo "Skipped."
-    return
-  fi
-  
-  echo ""
-  echo "What would you like to modify for $component_name?"
-  echo "1. Replicas"
-  echo "2. Resources (CPU/Memory)"
-  echo "3. Both"
-  echo "4. Remove component override"
-  echo "5. Cancel"
-  echo -n "Select option (1-5): "
-  read -r sizing_option
-  
-  case "$sizing_option" in
+  echo "  1) Modify Replicas"
+  echo "  2) Modify Resources (CPU/Memory)"
+  echo "  3) Remove a component override"
+  echo "  4) Cancel"
+  printf "Select option (1-4): "
+  read -r sizing_top
+
+  case "$sizing_top" in
+    4|"")
+      echo "Cancelled."
+      return
+      ;;
     1)
-      echo -n "Enter number of replicas: "
-      read -r replicas
-      if [ -z "$replicas" ] || ! [ "$replicas" -eq "$replicas" ] 2>/dev/null; then
-        echo "❌ Invalid replicas value"
+      # ---- REPLICAS MENU ----
+      echo ""
+      echo "Fetching wo-* components..."
+      local tmp_comps
+      tmp_comps=$(mktemp 2>/dev/null || echo "/tmp/wo_comps.$$")
+      _list_wo_components "$ns" > "$tmp_comps"
+
+      if [ ! -s "$tmp_comps" ]; then
+        echo "❌ No wo-* components found in namespace $ns"
+        rm -f "$tmp_comps"
         return
       fi
-      
-      echo "Updating replicas for $component_name to $replicas"
-      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"sizeMapping\":{\"$component_name\":{\"replicas\":$replicas}}}}"
+
+      echo ""
+      echo "#   Component                                    Current Replicas"
+      echo "--- ------------------------------------------------ ----------------"
+      local idx=0
+      while IFS='|' read -r ckind cname creplicas; do
+        idx=$((idx + 1))
+        # Get sizeMapping override if any
+        local sm_replicas
+        sm_replicas=$($OC -n "$ns" get wo "$wo_name" \
+          -o jsonpath="{.spec.sizeMapping.$cname.replicas}" 2>/dev/null || echo "")
+        if [ -n "$sm_replicas" ]; then
+          printf "%-3s %-48s %s (override: %s)\n" "$idx)" "$cname" "$creplicas" "$sm_replicas"
+        else
+          printf "%-3s %-48s %s\n" "$idx)" "$cname" "$creplicas"
+        fi
+      done < "$tmp_comps"
+
+      echo ""
+      printf "Select component number (or 'cancel'): "
+      read -r comp_choice
+
+      [ "$comp_choice" = "cancel" ] || [ -z "$comp_choice" ] && { echo "Skipped."; rm -f "$tmp_comps"; return; }
+
+      local selected_name
+      selected_name=$(awk -F'|' -v n="$comp_choice" 'NR==n{print $2}' "$tmp_comps")
+      rm -f "$tmp_comps"
+
+      if [ -z "$selected_name" ]; then
+        echo "❌ Invalid selection."
+        return
+      fi
+
+      local cur_replicas
+      cur_replicas=$($OC -n "$ns" get wo "$wo_name" \
+        -o jsonpath="{.spec.sizeMapping.$selected_name.replicas}" 2>/dev/null || echo "")
+      echo ""
+      echo "Component: $selected_name"
+      echo "Current sizeMapping replicas: ${cur_replicas:-not overridden}"
+      printf "Enter new replica count (or 'cancel'): "
+      read -r new_replicas
+
+      [ "$new_replicas" = "cancel" ] || [ -z "$new_replicas" ] && { echo "Skipped."; return; }
+
+      if ! [ "$new_replicas" -eq "$new_replicas" ] 2>/dev/null; then
+        echo "❌ Invalid number."
+        return
+      fi
+
+      echo "Updating replicas for $selected_name to $new_replicas..."
+      $OC -n "$ns" patch wo "$wo_name" --type=merge \
+        -p "{\"spec\":{\"sizeMapping\":{\"$selected_name\":{\"replicas\":$new_replicas}}}}"
       echo "✓ Replicas updated successfully"
       ;;
+
     2)
+      # ---- RESOURCES MENU ----
       echo ""
-      echo "Resource configuration (leave empty to skip):"
-      echo -n "CPU request (e.g., 100m, 1): "
+      echo "Fetching wo-* components..."
+      local tmp_comps2
+      tmp_comps2=$(mktemp 2>/dev/null || echo "/tmp/wo_comps2.$$")
+      _list_wo_components "$ns" > "$tmp_comps2"
+
+      if [ ! -s "$tmp_comps2" ]; then
+        echo "❌ No wo-* components found in namespace $ns"
+        rm -f "$tmp_comps2"
+        return
+      fi
+
+      echo ""
+      echo "#   Component"
+      echo "--- ------------------------------------------------"
+      local idx2=0
+      while IFS='|' read -r ckind cname creplicas; do
+        idx2=$((idx2 + 1))
+        printf "%-3s %s\n" "$idx2)" "$cname"
+      done < "$tmp_comps2"
+
+      echo ""
+      printf "Select component number (or 'cancel'): "
+      read -r comp_choice2
+
+      [ "$comp_choice2" = "cancel" ] || [ -z "$comp_choice2" ] && { echo "Skipped."; rm -f "$tmp_comps2"; return; }
+
+      local selected_name2
+      selected_name2=$(awk -F'|' -v n="$comp_choice2" 'NR==n{print $2}' "$tmp_comps2")
+      rm -f "$tmp_comps2"
+
+      if [ -z "$selected_name2" ]; then
+        echo "❌ Invalid selection."
+        return
+      fi
+
+      # Show live deployment values AND sizeMapping overrides side by side
+      echo ""
+      echo "Fetching current resource values for $selected_name2..."
+      local res_info
+      res_info=$(_get_component_resources "$ns" "$selected_name2")
+      local cur_cpu_req cur_mem_req cur_cpu_lim cur_mem_lim
+      cur_cpu_req=$(echo "$res_info" | awk -F'|' '{print $1}')
+      cur_mem_req=$(echo "$res_info" | awk -F'|' '{print $2}')
+      cur_cpu_lim=$(echo "$res_info" | awk -F'|' '{print $3}')
+      cur_mem_lim=$(echo "$res_info" | awk -F'|' '{print $4}')
+
+      # Fetch sizeMapping overrides from WO CR
+      local sm_cpu_req sm_mem_req sm_cpu_lim sm_mem_lim
+      sm_cpu_req=$($OC -n "$ns" get wo "$wo_name" \
+        -o jsonpath="{.spec.sizeMapping.$selected_name2.resources.requests.cpu}" 2>/dev/null || echo "")
+      sm_mem_req=$($OC -n "$ns" get wo "$wo_name" \
+        -o jsonpath="{.spec.sizeMapping.$selected_name2.resources.requests.memory}" 2>/dev/null || echo "")
+      sm_cpu_lim=$($OC -n "$ns" get wo "$wo_name" \
+        -o jsonpath="{.spec.sizeMapping.$selected_name2.resources.limits.cpu}" 2>/dev/null || echo "")
+      sm_mem_lim=$($OC -n "$ns" get wo "$wo_name" \
+        -o jsonpath="{.spec.sizeMapping.$selected_name2.resources.limits.memory}" 2>/dev/null || echo "")
+
+      # Helper to format a field: show override and live, or just live
+      _fmt_field() {
+        local live="$1" override="$2"
+        if [ -n "$override" ] && [ "$override" != "$live" ]; then
+          echo "$live  (override: $override)"
+        else
+          echo "$live"
+        fi
+      }
+
+      echo ""
+      echo "Component: $selected_name2"
+      printf "  CPU request : %s\n" "$(_fmt_field "$cur_cpu_req" "$sm_cpu_req")"
+      printf "  CPU limit   : %s\n" "$(_fmt_field "$cur_cpu_lim" "$sm_cpu_lim")"
+      printf "  Mem request : %s\n" "$(_fmt_field "$cur_mem_req" "$sm_mem_req")"
+      printf "  Mem limit   : %s\n" "$(_fmt_field "$cur_mem_lim" "$sm_mem_lim")"
+      echo ""
+      echo "Enter new values (press Enter to skip):"
+      printf "  CPU request  [live: $cur_cpu_req${sm_cpu_req:+, override: $sm_cpu_req}]: "
       read -r cpu_req
-      echo -n "CPU limit (e.g., 500m, 2): "
+      printf "  CPU limit    [live: $cur_cpu_lim${sm_cpu_lim:+, override: $sm_cpu_lim}]: "
       read -r cpu_lim
-      echo -n "Memory request (e.g., 256Mi, 1Gi): "
+      printf "  Mem request  [live: $cur_mem_req${sm_mem_req:+, override: $sm_mem_req}]: "
       read -r mem_req
-      echo -n "Memory limit (e.g., 512Mi, 2Gi): "
+      printf "  Mem limit    [live: $cur_mem_lim${sm_mem_lim:+, override: $sm_mem_lim}]: "
       read -r mem_lim
-      
+
+      # Strip "not set" sentinel so we don't write garbage
+      [ "$cpu_req" = "not set" ] && cpu_req=""
+      [ "$cpu_lim" = "not set" ] && cpu_lim=""
+      [ "$mem_req" = "not set" ] && mem_req=""
+      [ "$mem_lim" = "not set" ] && mem_lim=""
+
       # Build resources JSON
       local resources_json="{"
       local has_requests=false
       local has_limits=false
-      
+
       if [ -n "$cpu_req" ] || [ -n "$mem_req" ]; then
         has_requests=true
-        resources_json="$resources_json\"requests\":{"
-        [ -n "$cpu_req" ] && resources_json="$resources_json\"cpu\":\"$cpu_req\","
-        [ -n "$mem_req" ] && resources_json="$resources_json\"memory\":\"$mem_req\","
+        resources_json="${resources_json}\"requests\":{"
+        [ -n "$cpu_req" ] && resources_json="${resources_json}\"cpu\":\"$cpu_req\","
+        [ -n "$mem_req" ] && resources_json="${resources_json}\"memory\":\"$mem_req\","
         resources_json="${resources_json%,}}"
       fi
-      
+
       if [ -n "$cpu_lim" ] || [ -n "$mem_lim" ]; then
         has_limits=true
-        [ "$has_requests" = true ] && resources_json="$resources_json,"
-        resources_json="$resources_json\"limits\":{"
-        [ -n "$cpu_lim" ] && resources_json="$resources_json\"cpu\":\"$cpu_lim\","
-        [ -n "$mem_lim" ] && resources_json="$resources_json\"memory\":\"$mem_lim\","
+        [ "$has_requests" = true ] && resources_json="${resources_json},"
+        resources_json="${resources_json}\"limits\":{"
+        [ -n "$cpu_lim" ] && resources_json="${resources_json}\"cpu\":\"$cpu_lim\","
+        [ -n "$mem_lim" ] && resources_json="${resources_json}\"memory\":\"$mem_lim\","
         resources_json="${resources_json%,}}"
       fi
-      
-      resources_json="$resources_json}"
-      
+
+      resources_json="${resources_json}}"
+
       if [ "$has_requests" = false ] && [ "$has_limits" = false ]; then
-        echo "❌ No resources specified"
+        echo "❌ No resource values specified."
         return
       fi
-      
-      echo "Updating resources for $component_name"
-      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"sizeMapping\":{\"$component_name\":{\"resources\":$resources_json}}}}"
+
+      echo "Updating resources for $selected_name2..."
+      $OC -n "$ns" patch wo "$wo_name" --type=merge \
+        -p "{\"spec\":{\"sizeMapping\":{\"$selected_name2\":{\"resources\":$resources_json}}}}"
       echo "✓ Resources updated successfully"
       ;;
+
     3)
-      echo -n "Enter number of replicas: "
-      read -r replicas
-      if [ -z "$replicas" ] || ! [ "$replicas" -eq "$replicas" ] 2>/dev/null; then
-        echo "❌ Invalid replicas value"
+      # ---- REMOVE OVERRIDE ----
+      echo ""
+      echo "Fetching wo-* components with active sizeMapping overrides..."
+      local tmp_comps3
+      tmp_comps3=$(mktemp 2>/dev/null || echo "/tmp/wo_comps3.$$")
+      _list_wo_components "$ns" > "$tmp_comps3"
+
+      echo ""
+      echo "#   Component                                    Override"
+      echo "--- ------------------------------------------------ --------"
+      local idx3=0
+      while IFS='|' read -r ckind cname creplicas; do
+        idx3=$((idx3 + 1))
+        local sm_val
+        sm_val=$($OC -n "$ns" get wo "$wo_name" \
+          -o jsonpath="{.spec.sizeMapping.$cname}" 2>/dev/null || echo "")
+        local override_label
+        [ -n "$sm_val" ] && override_label="yes" || override_label="none"
+        printf "%-3s %-48s %s\n" "$idx3)" "$cname" "$override_label"
+      done < "$tmp_comps3"
+
+      echo ""
+      printf "Select component number to remove its override (or 'cancel'): "
+      read -r comp_choice3
+
+      [ "$comp_choice3" = "cancel" ] || [ -z "$comp_choice3" ] && { echo "Skipped."; rm -f "$tmp_comps3"; return; }
+
+      local selected_name3
+      selected_name3=$(awk -F'|' -v n="$comp_choice3" 'NR==n{print $2}' "$tmp_comps3")
+      rm -f "$tmp_comps3"
+
+      if [ -z "$selected_name3" ]; then
+        echo "❌ Invalid selection."
         return
       fi
-      
-      echo ""
-      echo "Resource configuration (leave empty to skip):"
-      echo -n "CPU request (e.g., 100m, 1): "
-      read -r cpu_req
-      echo -n "CPU limit (e.g., 500m, 2): "
-      read -r cpu_lim
-      echo -n "Memory request (e.g., 256Mi, 1Gi): "
-      read -r mem_req
-      echo -n "Memory limit (e.g., 512Mi, 2Gi): "
-      read -r mem_lim
-      
-      # Build resources JSON
-      local resources_json="{"
-      local has_requests=false
-      local has_limits=false
-      
-      if [ -n "$cpu_req" ] || [ -n "$mem_req" ]; then
-        has_requests=true
-        resources_json="$resources_json\"requests\":{"
-        [ -n "$cpu_req" ] && resources_json="$resources_json\"cpu\":\"$cpu_req\","
-        [ -n "$mem_req" ] && resources_json="$resources_json\"memory\":\"$mem_req\","
-        resources_json="${resources_json%,}}"
-      fi
-      
-      if [ -n "$cpu_lim" ] || [ -n "$mem_lim" ]; then
-        has_limits=true
-        [ "$has_requests" = true ] && resources_json="$resources_json,"
-        resources_json="$resources_json\"limits\":{"
-        [ -n "$cpu_lim" ] && resources_json="$resources_json\"cpu\":\"$cpu_lim\","
-        [ -n "$mem_lim" ] && resources_json="$resources_json\"memory\":\"$mem_lim\","
-        resources_json="${resources_json%,}}"
-      fi
-      
-      resources_json="$resources_json}"
-      
-      echo "Updating replicas and resources for $component_name"
-      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"sizeMapping\":{\"$component_name\":{\"replicas\":$replicas,\"resources\":$resources_json}}}}"
-      echo "✓ Replicas and resources updated successfully"
+
+      echo "Removing sizeMapping override for $selected_name3..."
+      $OC -n "$ns" patch wo "$wo_name" --type=json \
+        -p "[{\"op\":\"remove\",\"path\":\"/spec/sizeMapping/$selected_name3\"}]" 2>/dev/null || \
+        echo "  ℹ️  No override found for $selected_name3 (nothing to remove)"
+      echo "✓ Done"
       ;;
-    4)
-      echo "Removing size mapping override for $component_name"
-      $OC -n "$ns" patch wo "$wo_name" --type=json -p "[{\"op\":\"remove\",\"path\":\"/spec/sizeMapping/$component_name\"}]" 2>/dev/null
-      echo "✓ Component override removed (if it existed)"
-      ;;
-    5|*)
-      echo "Cancelled."
+
+    *)
+      echo "❌ Invalid choice."
       ;;
   esac
 }
@@ -661,7 +901,7 @@ run_configuration_mode() {
     echo "  6. Refresh current configuration"
     echo "  7. Exit configuration mode"
     echo ""
-    echo -n "Select option (1-7): "
+    printf "Select option (1-7): "
     read -r config_choice
     
     case "$config_choice" in
@@ -987,11 +1227,41 @@ is_docproc_enabled_in_wo() {
 }
 
 # ------------------------- Checks ---------------------------
+# Shared helper: prompt user to restart a list of bad pods
+# Usage: prompt_restart_bad_pods <namespace> <tmp_file_col1=podname>
+# tmp_file rows are tab-separated; column 1 must be the pod name
+prompt_restart_bad_pods() {
+  local ns="$1"
+  local tmp_bad="$2"
+  [ -t 1 ] || return 0          # only prompt in interactive terminals
+  [ -s "$tmp_bad" ] || return 0 # nothing to do if file is empty
+  echo ""
+  printf "  Restart these failing pods in %s? [y/N] (auto-skip in 30s): " "$ns"
+  pr_ans=""
+  if read -t 30 pr_ans </dev/tty 2>/dev/null; then
+    case "$pr_ans" in
+      y|Y|yes|YES)
+        echo "  Restarting..."
+        awk -F'\t' '{print $1}' "$tmp_bad" | while IFS= read -r pr_pod; do
+          [ -z "$pr_pod" ] && continue
+          echo "    Deleting $pr_pod ..."
+          $OC -n "$ns" delete pod "$pr_pod" --ignore-not-found
+        done
+        echo "  Pods deleted — StatefulSet/Deployment will recreate them automatically."
+        ;;
+      *) echo "  Skipping restart." ;;
+    esac
+  else
+    echo ""
+    echo "  (timed out — skipping restart)"
+  fi
+}
+
 check_wo_pods() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   bad_found=0
   total_wo=0
-  echo "▶ Checking Orchestrate pods (including Milvus)"
+  echo "▶ Checking Orchestrate pods"
   tmp_list=`mktemp 2>/dev/null || echo "/tmp/wo_pods.$$"`
   tmp_bad=`mktemp 2>/dev/null || echo "/tmp/wo_bad.$$"`
   $OCN get pods --no-headers 2>/dev/null > "$tmp_list" || :
@@ -1033,6 +1303,7 @@ check_wo_pods() {
   printf "%-55s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
   printf "%-55s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
   awk -F"\t" '{printf "%-55s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
+    prompt_restart_bad_pods "$PROJECT_CPD_INST_OPERANDS" "$tmp_bad"
     rm -f "$tmp_list" "$tmp_bad"
     return 1
   fi
@@ -1050,6 +1321,56 @@ check_wo_cr() {
     return 0
   else
     echo "❌ watsonx Orchestrate ($wo_name): Ready=$wo_ready, Status=$wo_status, Progress=$wo_progress"
+    return 1
+  fi
+}
+
+check_all_operand_pods() {
+  local ns="$PROJECT_CPD_INST_OPERANDS"
+  local bad_found=0
+  local total=0
+  echo "▶ Checking all pods in operands namespace ($ns)"
+  tmp_list=`mktemp 2>/dev/null || echo "/tmp/all_pods.$"`
+  tmp_bad=`mktemp  2>/dev/null || echo "/tmp/all_bad.$"`
+  $OC -n "$ns" get pods --no-headers 2>/dev/null > "$tmp_list" || :
+  while IFS= read -r line; do
+    name="$(printf '%s\n' "$line" | awk '{print $1}')"
+    ready="$(printf '%s\n' "$line" | awk '{print $2}')"
+    status="$(printf '%s\n' "$line" | awk '{print $3}')"
+    restarts="$(printf '%s\n' "$line" | awk '{print $4}')"
+    age="$(printf '%s\n' "$line" | awk '{print $NF}')"
+    [ -z "$name" ] && continue
+    # Skip pods already covered by check_wo_pods
+    case "$name" in wo-*|*milvus*) continue ;; esac
+    total=`expr "${total:-0}" + 1`
+    [ "$status" = "Completed" ] && continue
+    current=`echo "$ready" | awk -F/ '{print $1}'`
+    desired=`echo "$ready" | awk -F/ '{print $2}'`
+    if [ "$status" = "Running" ] && [ "$current" = "$desired" ]; then
+      :
+    else
+      printf "%s\t%s\t%s\t%s\t%s\n" "$name" "$ready" "$status" "${restarts:-?}" "${age:-?}" >> "$tmp_bad"
+      bad_found=1
+    fi
+  done < "$tmp_list"
+  rm -f "$tmp_list"
+
+  if [ "${total:-0}" -eq 0 ]; then
+    echo "  ℹ️  No non orchestrate pods found in $ns"
+    rm -f "$tmp_bad"
+    return 0
+  fi
+  if [ "${bad_found:-0}" -eq 0 ]; then
+    echo "  ✅ All non orchestrate pods in $ns are healthy ($total pods checked)"
+    rm -f "$tmp_bad"
+    return 0
+  else
+    echo "  ❌ Some non orchestrate pods in $ns are not healthy:"
+    printf "%-60s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
+    printf "%-60s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
+    awk -F"\t" '{printf "%-60s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
+    prompt_restart_bad_pods "$ns" "$tmp_bad"
+    rm -f "$tmp_bad"
     return 1
   fi
 }
@@ -1857,21 +2178,62 @@ check_kafka_user_and_secret() {
     fi
   fi
   
+  secret_broken=0
   if ! $OC get secret ke-kafka-broker-secret -n knative-eventing >/dev/null 2>&1; then
     echo "❌ Kafka broker secret 'ke-kafka-broker-secret' not found"
     bad=1
+    secret_broken=1
   else
     # Verify secret has required keys
     has_ca=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.ca\.crt}' 2>/dev/null || echo "")
     has_user_crt=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.user\.crt}' 2>/dev/null || echo "")
     has_user_key=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.user\.key}' 2>/dev/null || echo "")
-    
+
     if [ -z "$has_ca" ] || [ -z "$has_user_crt" ] || [ -z "$has_user_key" ]; then
       echo "❌ Kafka broker secret missing required keys (ca.crt, user.crt, user.key)"
       bad=1
+      secret_broken=1
+    else
+      # Verify certificates match the source secrets (detect stale certs)
+      source_ca=$($OC get secret knative-eventing-kafka-cluster-ca-cert -n knative-eventing -o jsonpath="{.data['ca\.crt']}" 2>/dev/null || echo "")
+      if [ -n "$source_ca" ] && [ "$has_ca" != "$source_ca" ]; then
+        echo "⚠️  Kafka broker secret ca.crt does not match cluster CA cert (stale certificate)"
+        secret_broken=1
+        bad=1
+      fi
+      source_user_crt=$($OC get secret ke-kafka-user -n knative-eventing -o jsonpath="{.data['user\.crt']}" 2>/dev/null || echo "")
+      if [ -n "$source_user_crt" ] && [ "$has_user_crt" != "$source_user_crt" ]; then
+        echo "⚠️  Kafka broker secret user.crt does not match KafkaUser cert (stale certificate)"
+        secret_broken=1
+        bad=1
+      fi
     fi
   fi
-  
+
+  # Offer to fix the broker secret if it's missing or broken
+  if [ "$secret_broken" -eq 1 ] && [ "${KAFKA_SECRET_FIX_ATTEMPTED:-0}" -eq 0 ]; then
+    printf "  Would you like to fix the Kafka broker secret? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    if read -t $USER_INPUT_TIMEOUT fix_secret 2>/dev/null; then
+      : # User provided input
+    else
+      fix_secret="n"
+      echo
+      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping secret fix..."
+    fi
+    if [ "$fix_secret" = "y" ] || [ "$fix_secret" = "Y" ]; then
+      export KAFKA_SECRET_FIX_ATTEMPTED=1
+      fix_kafka_broker_secret
+      # Re-check after fix
+      has_ca=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.ca\.crt}' 2>/dev/null || echo "")
+      has_user_crt=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.user\.crt}' 2>/dev/null || echo "")
+      has_user_key=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.user\.key}' 2>/dev/null || echo "")
+      if [ -n "$has_ca" ] && [ -n "$has_user_crt" ] && [ -n "$has_user_key" ]; then
+        echo "  ✅ Kafka broker secret has been repaired"
+        bad=0
+      fi
+    fi
+  fi
+
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
@@ -1987,35 +2349,360 @@ EOF
   $OC get secret "$SECRET_NAME" -o json -n "$NAMESPACE" | jq --arg user_key "$user_key_data" '.data["user.key"]=$user_key' | $OC apply -f - >/dev/null 2>&1
   
   echo "  ✅ Kafka broker secret has been successfully updated"
-  echo "  ℹ️  The broker should reconnect automatically within a few moments"
+  echo "  ℹ️  Kafka eventing deployments must be restarted to pick up the new certificates"
   return 0
+}
+
+# Shared helper: delete brokers and triggers, then wait for recreation
+delete_brokers_and_triggers() {
+  local OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+
+  echo "  🗑️  Deleting brokers starting with 'knative-wa-clu-broker'..."
+  $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^knative-wa-clu-broker" | while read broker_name; do
+    echo "     Deleting broker: $broker_name"
+    $OCN delete broker "$broker_name" --wait=false 2>/dev/null || echo "     Failed to delete $broker_name"
+  done
+
+  echo
+  echo "  🗑️  Deleting triggers starting with 'wo-wa-ke'..."
+  $OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^wo-wa-ke" | while read trigger_name; do
+    echo "     Deleting trigger: $trigger_name"
+    $OCN delete trigger "$trigger_name" --wait=false 2>/dev/null || echo "     Failed to delete $trigger_name"
+  done
+
+  echo
+  echo "  ⏳ Waiting for brokers and triggers to be recreated by the WA operator..."
+
+  local max_wait=180  # 3 minutes
+  local interval=15
+  local elapsed=0
+  local brokers_ready=0
+  local triggers_ready=0
+
+  while [ "$elapsed" -lt "$max_wait" ]; do
+    sleep "$interval"
+    elapsed=$((elapsed + interval))
+
+    # Check if brokers exist and are ready
+    broker_count=$($OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | grep "^knative-wa-clu-broker" | wc -l)
+    if [ "$broker_count" -gt 0 ]; then
+      broker_not_ready=$($OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | grep "^knative-wa-clu-broker" | while read line; do
+        name=$(echo "$line" | awk '{print $1}')
+        status=$($OCN get broker "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+        [ "$status" != "True" ] && echo "not_ready"
+      done | head -1)
+      [ -z "$broker_not_ready" ] && brokers_ready=1
+    fi
+
+    # Check if triggers exist and are ready
+    trigger_count=$($OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null | grep "^wo-wa-ke" | wc -l)
+    if [ "$trigger_count" -gt 0 ]; then
+      trigger_not_ready=$($OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null | grep "^wo-wa-ke" | while read line; do
+        name=$(echo "$line" | awk '{print $1}')
+        status=$($OCN get trigger "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+        [ "$status" != "True" ] && echo "not_ready"
+      done | head -1)
+      [ -z "$trigger_not_ready" ] && triggers_ready=1
+    fi
+
+    echo "     [${elapsed}s] Brokers: ${broker_count} found (ready: $([ "$brokers_ready" -eq 1 ] && echo 'yes' || echo 'no')), Triggers: ${trigger_count} found (ready: $([ "$triggers_ready" -eq 1 ] && echo 'yes' || echo 'no'))"
+
+    if [ "$brokers_ready" -eq 1 ] && [ "$triggers_ready" -eq 1 ]; then
+      echo
+      echo "  ✅ Brokers and triggers have been recreated and are ready"
+      return 0
+    fi
+  done
+
+  echo
+  echo "  ⚠️  Timed out after ${max_wait}s waiting for recreation. Current state:"
+  echo "     Brokers found: $broker_count (ready: $([ "$brokers_ready" -eq 1 ] && echo 'yes' || echo 'no'))"
+  echo "     Triggers found: $trigger_count (ready: $([ "$triggers_ready" -eq 1 ] && echo 'yes' || echo 'no'))"
+  echo "  ℹ️  The WA operator may still be reconciling. Re-run the health check in a few minutes."
+  return 1
+}
+
+# Shared helper: check if an error string matches known Kafka/knative connectivity patterns
+is_kafka_connectivity_error() {
+  local text="$1"
+  echo "$text" | grep -qiE "cannot obtain Kafka cluster admin|client has run out of available brokers|connection refused|tls handshake|certificate (has )?expired|x509|SASL authentication|failed to create kafka|dial tcp.*connection refused|EOF|broken pipe|context deadline exceeded|leadership election|InitializeOffset|no leader for this partition|failed to initialize.*offset|failed to get the topic offsets"
+}
+
+# Restart Kafka eventing deployments so they pick up updated secrets
+restart_kafka_eventing_deployments() {
+  echo "  🔄 Restarting Kafka eventing deployments in knative-eventing to pick up new certificates..."
+  for dep in kafka-broker-receiver kafka-controller; do
+    if $OC get deployment "$dep" -n knative-eventing >/dev/null 2>&1; then
+      echo "     Restarting $dep..."
+      $OC rollout restart deployment "$dep" -n knative-eventing 2>/dev/null || echo "     ⚠️  Failed to restart $dep"
+    fi
+  done
+
+  echo "  ⏳ Waiting for rollout to complete..."
+  local rollout_ok=1
+  for dep in kafka-broker-receiver kafka-controller; do
+    if $OC get deployment "$dep" -n knative-eventing >/dev/null 2>&1; then
+      if ! $OC rollout status deployment "$dep" -n knative-eventing --timeout=120s 2>/dev/null; then
+        echo "     ⚠️  Rollout of $dep did not complete within 120s"
+        rollout_ok=0
+      else
+        echo "     ✅ $dep rollout complete"
+      fi
+    fi
+  done
+  return $([ "$rollout_ok" -eq 1 ] && echo 0 || echo 1)
+}
+
+# Wait for brokers to become ready, with polling
+wait_for_brokers_ready() {
+  local OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+  local max_wait="${1:-120}"
+  local interval=15
+  local elapsed=0
+
+  echo "  ⏳ Waiting up to ${max_wait}s for brokers to become ready..."
+  while [ "$elapsed" -lt "$max_wait" ]; do
+    sleep "$interval"
+    elapsed=$((elapsed + interval))
+
+    local all_ready=1
+    $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | grep "^knative-wa-clu-broker" | while read line; do
+      name=$(echo "$line" | awk '{print $1}')
+      status=$($OCN get broker "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+      [ "$status" != "True" ] && echo "not_ready"
+    done | grep -q "not_ready" && all_ready=0
+
+    if [ "$all_ready" -eq 1 ]; then
+      echo "     [${elapsed}s] ✅ All brokers are ready"
+      return 0
+    fi
+    echo "     [${elapsed}s] Brokers not ready yet..."
+  done
+  return 1
+}
+
+# Unified knative fix flow: try secret fix + restart first, then broker/trigger recreation
+attempt_knative_fix() {
+  local OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+
+  # Guard: only attempt once per run
+  if [ "${KAFKA_FIX_ATTEMPTED:-0}" -eq 1 ]; then
+    return 0
+  fi
+
+  echo "  ⚠️  Detected Kafka broker connectivity/authentication issue"
+  echo "  ℹ️  Fix strategy:"
+  echo "     1. Repair broker secret certificates"
+  echo "     2. Restart kafka-broker-receiver and kafka-controller to pick up new certs"
+  echo "     3. If still failing, delete and recreate brokers/triggers"
+  echo
+
+  printf "  Would you like to attempt automatic fix? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+
+  if read -t $USER_INPUT_TIMEOUT fix_answer 2>/dev/null; then
+    : # User provided input
+  else
+    fix_answer="n"
+    echo
+    echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping fix..."
+  fi
+
+  if [ "$fix_answer" != "y" ] && [ "$fix_answer" != "Y" ]; then
+    echo
+    echo "  ℹ️  Skipping automatic fix. You can manually run:"
+    echo "     1. Fix broker secret: update ke-kafka-broker-secret in knative-eventing namespace"
+    echo "     2. Restart deployments: oc rollout restart deployment kafka-broker-receiver kafka-controller -n knative-eventing"
+    echo "     3. Delete/recreate brokers: oc delete broker -n $PROJECT_CPD_INST_OPERANDS knative-wa-clu-broker"
+    echo "     4. Delete/recreate triggers: oc delete trigger -n $PROJECT_CPD_INST_OPERANDS \$(oc get triggers -n $PROJECT_CPD_INST_OPERANDS --no-headers | grep '^wo-wa-ke' | awk '{print \$1}')"
+    return 0
+  fi
+
+  export KAFKA_FIX_ATTEMPTED=1
+
+  # Step 1: Fix the broker secret
+  echo
+  echo "  Step 1/3: Fixing Kafka broker secret certificates..."
+  if ! fix_kafka_broker_secret; then
+    echo "  ⚠️  Certificate fix failed, proceeding to Step 3 (delete/recreate)..."
+    echo
+    echo "  Step 3/3: Deleting and recreating brokers and triggers..."
+    delete_brokers_and_triggers
+    return $?
+  fi
+
+  # Step 2: Restart kafka-broker-receiver and kafka-controller so they load the new certs
+  echo
+  echo "  Step 2/3: Restarting Kafka eventing deployments..."
+  restart_kafka_eventing_deployments
+
+  # Wait for brokers to recover with the new certs
+  echo
+  if wait_for_brokers_ready 120; then
+    echo "  ✅ Certificate fix + restart resolved the issue"
+    return 0
+  fi
+
+  echo "  ℹ️  Brokers still not ready after certificate fix and restart, proceeding to Step 3..."
+
+  # Step 3: Delete and recreate brokers/triggers as last resort
+  echo
+  echo "  Step 3/3: Deleting and recreating brokers and triggers..."
+  delete_brokers_and_triggers
+}
+
+# Check for failing pods in knative-eventing and ibm-knative-events namespaces
+check_knative_eventing_pods() {
+  echo "▶ Checking pods in knative-eventing and ibm-knative-events namespaces"
+
+  local bad_found=0
+  for ns in knative-eventing ibm-knative-events; do
+    if ! $OC get namespace "$ns" >/dev/null 2>&1; then
+      echo "  ℹ️  Namespace $ns not found, skipping"
+      continue
+    fi
+
+    local ns_bad=0
+    local ns_total=0
+    local tmp_pods
+    tmp_pods=$(mktemp 2>/dev/null || echo "/tmp/ke_pods_${ns}.$$")
+    $OC get pods -n "$ns" --no-headers 2>/dev/null > "$tmp_pods" || :
+
+    while IFS= read -r line; do
+      name="$(printf '%s\n' "$line" | awk '{print $1}')"
+      ready="$(printf '%s\n' "$line" | awk '{print $2}')"
+      status="$(printf '%s\n' "$line" | awk '{print $3}')"
+      restarts="$(printf '%s\n' "$line" | awk '{print $4}')"
+      age="$(printf '%s\n' "$line" | awk '{print $NF}')"
+      [ -z "$name" ] && continue
+
+      ns_total=$((ns_total + 1))
+
+      # Skip completed pods (jobs)
+      [ "$status" = "Completed" ] && continue
+
+      current=$(echo "$ready" | awk -F/ '{print $1}')
+      total=$(echo "$ready" | awk -F/ '{print $2}')
+
+      if [ "$status" = "Running" ] && [ "$current" = "$total" ]; then
+        continue
+      fi
+
+      # Pod is not healthy
+      ns_bad=1
+      bad_found=1
+      echo "  ❌ [$ns] $name"
+      echo "     Ready: $ready  Status: $status  Restarts: ${restarts:-0}  Age: ${age:-?}"
+
+      # Show reason for non-running pods
+      if [ "$status" != "Running" ]; then
+        reason=$($OC get pod "$name" -n "$ns" -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || echo "")
+        message=$($OC get pod "$name" -n "$ns" -o jsonpath='{.status.containerStatuses[0].state.waiting.message}' 2>/dev/null || echo "")
+        [ -n "$reason" ] && echo "     Reason: $reason"
+        [ -n "$message" ] && echo "     Message: $(echo "$message" | head -c 200)"
+      fi
+
+      # Show last termination reason for crashlooping pods
+      if [ "${restarts:-0}" -gt 0 ]; then
+        term_reason=$($OC get pod "$name" -n "$ns" -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null || echo "")
+        term_exit=$($OC get pod "$name" -n "$ns" -o jsonpath='{.status.containerStatuses[0].lastState.terminated.exitCode}' 2>/dev/null || echo "")
+        [ -n "$term_reason" ] && echo "     Last Termination: $term_reason (exit code: ${term_exit:-?})"
+      fi
+
+      # Print targeted fix instructions based on error type
+      case "${message:-}${reason:-}" in
+        *relabel*lsetxattr*|*relabel*read-only*)
+          echo "     ðĄ FIX (SELinux relabel on Ceph RBD): kubelet cannot relabel the CSI PVC."
+          echo "        Pin the SELinux level on the StatefulSet to skip relabeling:"
+          echo "          NS=$ns"
+          echo "          MCS=\$(oc get namespace \$NS -o jsonpath='{.metadata.annotations.openshift\.io/sa\.scc\.mcs}')"
+          echo "          STS=\$(oc -n \$NS get pod $name -o jsonpath='{.metadata.ownerReferences[0].name}' 2>/dev/null)"
+          echo "          oc -n \$NS patch statefulset \$STS --type=merge -p \"{\\\"spec\\\":{\\\"template\\\":{\\\"spec\\\":{\\\"securityContext\\\":{\\\"seLinuxOptions\\\":{\\\"level\\\":\\\"\$MCS\\\"}}}}}}\""
+          echo "          oc -n \$NS delete pod $name --ignore-not-found"
+          ;;
+        *CrashLoopBackOff*|*back-off*restarting*)
+          echo "     ðĄ FIX (CrashLoopBackOff): Check logs for root cause:"
+          echo "          oc -n $ns logs $name --previous --tail=40"
+          # Check if it is a Kafka JVM InternalError by peeking at previous logs
+          jvm_err=$($OC -n "$ns" logs "$name" --previous --tail=10 2>/dev/null | grep -cE 'InternalError|unsafe memory' 2>/dev/null || true)
+          jvm_err=$(printf '%s' "${jvm_err:-0}" | tr -d '[:space:]')
+          if [ "${jvm_err:-0}" -gt 0 ] 2>/dev/null; then
+            echo "     ðĄ FIX (Kafka JVM InternalError - corrupted metadata log):"
+            echo "        The __cluster_metadata log segment is corrupt. Wipe the PVC data dir:"
+            pvc_name=$($OC -n "$ns" get pod "$name" -o jsonpath='{.spec.volumes[?(@.name=="data")].persistentVolumeClaim.claimName}' 2>/dev/null || echo "data-$name")
+            echo "          # 1. Delete pod so PVC is unmounted"
+            echo "          oc -n $ns delete pod $name --ignore-not-found"
+            echo "          # 2. Spin up a wipe pod"
+            echo "          oc run kafka-wipe --image=registry.access.redhat.com/ubi9/ubi-minimal:latest\\"
+            echo "            --restart=Never -n $ns --overrides='{\"spec\":{\"volumes\":[{\"name\":\"d\",\"persistentVolumeClaim\":{\"claimName\":\"$pvc_name\"}}],\"containers\":[{\"name\":\"w\",\"image\":\"registry.access.redhat.com/ubi9/ubi-minimal:latest\",\"command\":[\"/bin/sh\",\"-c\",\"rm -rf /d/* && echo DONE\"],\"volumeMounts\":[{\"name\":\"d\",\"mountPath\":\"/d\"}]}]}}'"
+            echo "          # 3. Wait for wipe to complete then delete pod again"
+            echo "          oc -n $ns wait pod/kafka-wipe --for=condition=Succeeded --timeout=60s"
+            echo "          oc -n $ns delete pod kafka-wipe $name --ignore-not-found"
+            echo "          # Broker will resync metadata from healthy peers automatically"
+          fi
+          ;;
+      esac
+      echo
+    done < "$tmp_pods"
+
+    if [ "$ns_bad" -eq 0 ] && [ "$ns_total" -gt 0 ]; then
+      echo "  ✅ [$ns] All $ns_total pods healthy"
+    elif [ "$ns_total" -eq 0 ]; then
+      echo "  ⚠️  [$ns] No pods found"
+    fi
+    rm -f "$tmp_pods"
+  done
+
+  if [ "$bad_found" -ne 0 ]; then
+    tmp_bad_ke=`mktemp 2>/dev/null || echo "/tmp/ke_bad.$"`
+    tmp_ke_raw=`mktemp 2>/dev/null || echo "/tmp/ke_raw.$"`
+    for ke_ns in knative-eventing ibm-knative-events; do
+      $OC get pods -n "$ke_ns" --no-headers 2>/dev/null > "$tmp_ke_raw" || :
+      while IFS= read -r ke_line; do
+        ke_name="$(printf '%s\n' "$ke_line" | awk '{print $1}')"
+        ke_status="$(printf '%s\n' "$ke_line" | awk '{print $3}')"
+        ke_ready="$(printf '%s\n' "$ke_line" | awk '{print $2}')"
+        [ -z "$ke_name" ] && continue
+        [ "$ke_status" = "Completed" ] && continue
+        ke_cur=`echo "$ke_ready" | awk -F/ '{print $1}'`
+        ke_tot=`echo "$ke_ready" | awk -F/ '{print $2}'`
+        if ! { [ "$ke_status" = "Running" ] && [ "$ke_cur" = "$ke_tot" ]; }; then
+          printf '%s\t%s\n' "$ke_name" "$ke_ns" >> "$tmp_bad_ke"
+        fi
+      done < "$tmp_ke_raw"
+    done
+    rm -f "$tmp_ke_raw"
+    prompt_restart_bad_pods "knative-eventing" "$tmp_bad_ke"
+    rm -f "$tmp_bad_ke"
+  fi
+
+  [ "$bad_found" -eq 0 ] && return 0 || return 1
 }
 
 check_knative_brokers() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   echo "▶ Checking Knative Brokers"
-  
+
   tmp_brokers=`mktemp 2>/dev/null || echo "/tmp/wo_brokers.$$"`
   $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null > "$tmp_brokers" || :
-  
+
   if [ ! -s "$tmp_brokers" ]; then
     echo "ℹ️  No Knative Brokers found in namespace $PROJECT_CPD_INST_OPERANDS"
     rm -f "$tmp_brokers"
     return 0
   fi
-  
+
   bad=0
   kafka_auth_error=0
   while IFS= read -r line; do
     name="$(printf '%s\n' "$line" | awk '{print $1}')"
     url="$(printf '%s\n' "$line" | awk '{print $2}')"
     [ -z "${name:-}" ] && continue
-    
+
     # Get detailed status
     ready_status=`$OCN get broker "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
     ready_reason=`$OCN get broker "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null || :`
     ready_message=`$OCN get broker "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || :`
-    
+
     if [ "${ready_status:-}" = "True" ]; then
       echo "  ✅ Broker: $name"
       echo "     URL: ${url:-N/A}"
@@ -2025,71 +2712,24 @@ check_knative_brokers() {
       echo "     URL: ${url:-N/A}"
       echo "     Status: ${ready_status:-Unknown}"
       echo "     Reason: ${ready_reason:-Unknown}"
-      
-      # Check if this is a Kafka authentication/broker connection error
-      # Check both reason and message fields
-      if echo "$ready_reason" | grep -qE "cannot obtain Kafka cluster admin|client has run out of available brokers|connection refused"; then
-        kafka_auth_error=1
-      elif echo "$ready_message" | grep -qE "cannot obtain Kafka cluster admin|client has run out of available brokers|connection refused"; then
-        echo "     Message: ${ready_message}"
+      [ -n "${ready_message:-}" ] && echo "     Message: ${ready_message}"
+
+      # Check if this is a Kafka connectivity/authentication error
+      if is_kafka_connectivity_error "$ready_reason" || is_kafka_connectivity_error "$ready_message"; then
         kafka_auth_error=1
       fi
       bad=1
     fi
     echo
   done < "$tmp_brokers"
-  
+
   rm -f "$tmp_brokers"
-  
-  # If Kafka authentication error detected, offer to delete and recreate brokers/triggers
-  # Skip the certificate fix since connection refused means brokers aren't running
-  if [ "$kafka_auth_error" -eq 1 ] && [ "${KAFKA_FIX_ATTEMPTED:-0}" -eq 0 ]; then
-    echo "  ⚠️  Detected Kafka broker connectivity/authentication issue"
-    echo "  ℹ️  This may require deleting and recreating the brokers and triggers"
-    echo
-    printf "  Would you like to delete and recreate brokers (knative-wa-clu-broker) and triggers (wo-wa-ke*)? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
-    
-    # Read with timeout
-    if read -t $USER_INPUT_TIMEOUT delete_recreate 2>/dev/null; then
-      : # User provided input
-    else
-      delete_recreate="n"
-      echo
-      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping broker/trigger recreation..."
-    fi
-    
-    if [ "$delete_recreate" = "y" ] || [ "$delete_recreate" = "Y" ]; then
-      export KAFKA_FIX_ATTEMPTED=1
-      
-      echo
-      echo "  🗑️  Deleting brokers starting with 'knative-wa-clu-broker'..."
-      $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^knative-wa-clu-broker" | while read broker_name; do
-        echo "     Deleting broker: $broker_name"
-        $OCN delete broker "$broker_name" 2>/dev/null || echo "     Failed to delete $broker_name"
-      done
-      
-      echo
-      echo "  🗑️  Deleting triggers starting with 'wo-wa-ke'..."
-      $OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^wo-wa-ke" | while read trigger_name; do
-        echo "     Deleting trigger: $trigger_name"
-        $OCN delete trigger "$trigger_name" 2>/dev/null || echo "     Failed to delete $trigger_name"
-      done
-      
-      echo
-      echo "  ✅ Deletion complete. The Watson Assistant operator should recreate these resources automatically."
-      echo "  ℹ️  Please wait a few minutes for recreation, then re-run the health check"
-    else
-      echo
-      echo "  ℹ️  Skipping broker/trigger recreation. You can manually run:"
-      echo "     oc delete broker -n $PROJECT_CPD_INST_OPERANDS knative-wa-clu-broker"
-      echo "     oc delete trigger -n $PROJECT_CPD_INST_OPERANDS \$(oc get triggers -n $PROJECT_CPD_INST_OPERANDS --no-headers | grep '^wo-wa-ke' | awk '{print \$1}')"
-      echo
-      echo "  ℹ️  Or try fixing the Kafka broker secret:"
-      echo "     cd /path/to/wa-cpd-support/Scripts && bash fix_kafka_broker_secret_value.sh"
-    fi
-    echo
+
+  # If Kafka error detected, run the unified fix flow
+  if [ "$kafka_auth_error" -eq 1 ]; then
+    attempt_knative_fix
   fi
-  
+
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
@@ -2114,14 +2754,15 @@ check_knative_triggers() {
     broker="$(printf '%s\n' "$line" | awk '{print $2}')"
     subscriber_uri="$(printf '%s\n' "$line" | awk '{print $3}')"
     [ -z "${name:-}" ] && continue
-    
+
     trigger_count=`expr "${trigger_count:-0}" + 1`
-    
+
     # Get detailed status
     ready_status=`$OCN get trigger "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
     ready_reason=`$OCN get trigger "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null || :`
+    ready_message=`$OCN get trigger "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || :`
     subscriber_status=`$OCN get trigger "$name" -o jsonpath='{.status.conditions[?(@.type=="SubscriberResolved")].status}' 2>/dev/null || :`
-    
+
     if [ "${ready_status:-}" = "True" ]; then
       echo "  ✅ Trigger: $name"
       echo "     Broker: ${broker:-N/A}"
@@ -2133,68 +2774,51 @@ check_knative_triggers() {
       echo "     Subscriber: ${subscriber_uri:-N/A}"
       echo "     Ready Status: ${ready_status:-Unknown}"
       echo "     Ready Reason: ${ready_reason:-Unknown}"
+      [ -n "${ready_message:-}" ] && echo "     Message: ${ready_message}"
       echo "     Subscriber Status: ${subscriber_status:-Unknown}"
-      
-      # Check if this is a Kafka authentication/broker connection error
-      if echo "$ready_reason" | grep -qE "cannot obtain Kafka cluster admin|client has run out of available brokers|connection refused"; then
+
+      # Check if this is a Kafka connectivity/authentication error
+      if is_kafka_connectivity_error "$ready_reason" || is_kafka_connectivity_error "$ready_message"; then
         kafka_auth_error=1
       fi
+
+      # Print targeted fix hint for leadership election / InitializeOffset
+      if echo "${ready_reason:-}${ready_message:-}" | grep -qiE 'InitializeOffset|leadership|no leader|initialize.*offset|topic.*offsets'; then
+        echo "     💡 FIX (Kafka partition leadership election in progress):"
+        echo "        Broker-1 is down — no partition leader until all 3 brokers are healthy."
+        echo "        Steps:"
+        echo "          1. Fix broker-1 (wipe corrupted PVC data dir) — see broker pod fix hints above"
+        echo "          2. Once all 3 brokers are Running, triggers self-heal automatically"
+        echo "          3. To force reconciliation after brokers recover:"
+        echo "             oc -n $PROJECT_CPD_INST_OPERANDS annotate trigger $name reconcile=\$(date +%s) --overwrite"
+      fi
+      case "${ready_reason:-}${ready_message:-}" in
+        *DISABLED_PATTERN*)
+          echo "     💡 FIX (Kafka partition leadership election in progress):"
+          echo "        This is caused by Kafka broker-1 being down (CrashLoopBackOff)."
+          echo "        The partition has no leader until all 3 brokers are healthy."
+          echo "        Steps:"
+          echo "          1. Fix broker-1 first (wipe its corrupted PVC data dir):"
+          echo "             oc -n knative-eventing logs knative-eventing-kafka-knative-eventing-kafka-broker-1 --previous --tail=20"
+          echo "          2. Once all 3 brokers are Running, triggers will self-heal automatically"
+          echo "          3. To force immediate reconciliation after brokers recover:"
+          ;;
+      esac
       bad=1
     fi
     echo
   done < "$tmp_triggers"
-  
+
   echo "  Total Triggers: $trigger_count"
   echo
-  
+
   rm -f "$tmp_triggers"
-  
-  # If Kafka authentication error detected in triggers, offer to delete and recreate
-  # Only ask if we haven't already attempted the fix
-  if [ "$kafka_auth_error" -eq 1 ] && [ "${KAFKA_FIX_ATTEMPTED:-0}" -eq 0 ]; then
-    echo "  ⚠️  Detected Kafka broker connectivity/authentication issue in triggers"
-    echo "  ℹ️  This may require deleting and recreating the brokers and triggers"
-    echo
-    printf "  Would you like to delete and recreate brokers (knative-wa-clu-broker) and triggers (wo-wa-ke*)? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
-    
-    # Read with timeout
-    if read -t $USER_INPUT_TIMEOUT delete_recreate 2>/dev/null; then
-      : # User provided input
-    else
-      delete_recreate="n"
-      echo
-      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping broker/trigger recreation..."
-    fi
-    
-    if [ "$delete_recreate" = "y" ] || [ "$delete_recreate" = "Y" ]; then
-      export KAFKA_FIX_ATTEMPTED=1
-      
-      echo
-      echo "  🗑️  Deleting brokers starting with 'knative-wa-clu-broker'..."
-      $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^knative-wa-clu-broker" | while read broker_name; do
-        echo "     Deleting broker: $broker_name"
-        $OCN delete broker "$broker_name" 2>/dev/null || echo "     Failed to delete $broker_name"
-      done
-      
-      echo
-      echo "  🗑️  Deleting triggers starting with 'wo-wa-ke'..."
-      $OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^wo-wa-ke" | while read trigger_name; do
-        echo "     Deleting trigger: $trigger_name"
-        $OCN delete trigger "$trigger_name" 2>/dev/null || echo "     Failed to delete $trigger_name"
-      done
-      
-      echo
-      echo "  ✅ Deletion complete. The Watson Assistant operator should recreate these resources automatically."
-      echo "  ℹ️  Please wait a few minutes for recreation, then re-run the health check"
-    else
-      echo
-      echo "  ℹ️  Skipping broker/trigger recreation. You can manually run:"
-      echo "     oc delete broker -n $PROJECT_CPD_INST_OPERANDS knative-wa-clu-broker"
-      echo "     oc delete trigger -n $PROJECT_CPD_INST_OPERANDS \$(oc get triggers -n $PROJECT_CPD_INST_OPERANDS --no-headers | grep '^wo-wa-ke' | awk '{print \$1}')"
-    fi
-    echo
+
+  # If Kafka error detected in triggers, run the unified fix flow
+  if [ "$kafka_auth_error" -eq 1 ]; then
+    attempt_knative_fix
   fi
-  
+
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
@@ -2807,7 +3431,7 @@ check_wo_pods_troubleshoot() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   bad_found=0
   total_wo=0
-  echo "▶ Checking Orchestrate pods (including Milvus)"
+  echo "▶ Checking Orchestrate pods"
   tmp_list=`mktemp 2>/dev/null || echo "/tmp/wo_pods.$$"`
   tmp_bad=`mktemp 2>/dev/null || echo "/tmp/wo_bad.$$"`
   $OCN get pods --no-headers 2>/dev/null > "$tmp_list" || :
@@ -2869,6 +3493,95 @@ check_wo_pods_troubleshoot() {
   fi
 }
 
+check_noobaa_pods() {
+  echo "▶ Checking NooBaa pods in openshift-storage"
+
+  if ! $OC get namespace openshift-storage >/dev/null 2>&1; then
+    echo "  ℹ️  Namespace openshift-storage not found, skipping"
+    return 0
+  fi
+
+  local bad_found=0
+  local total=0
+  local tmp_pods
+  tmp_pods=$(mktemp 2>/dev/null || echo "/tmp/noobaa_pods.$$")
+  $OC get pods -n openshift-storage --no-headers 2>/dev/null | grep -E "^noobaa-" > "$tmp_pods" || :
+
+  while IFS= read -r line; do
+    name="$(printf '%s\n' "$line" | awk '{print $1}')"
+    ready="$(printf '%s\n' "$line" | awk '{print $2}')"
+    status="$(printf '%s\n' "$line" | awk '{print $3}')"
+    restarts="$(printf '%s\n' "$line" | awk '{print $4}')"
+    age="$(printf '%s\n' "$line" | awk '{print $NF}')"
+    [ -z "$name" ] && continue
+
+    total=$((total + 1))
+    [ "$status" = "Completed" ] && continue
+
+    current=$(echo "$ready" | awk -F/ '{print $1}')
+    desired=$(echo "$ready" | awk -F/ '{print $2}')
+
+    if [ "$status" = "Running" ] && [ "$current" = "$desired" ]; then
+      continue
+    fi
+
+    bad_found=1
+    echo "  ❌ $name"
+    echo "     Ready: $ready  Status: $status  Restarts: ${restarts:-0}  Age: ${age:-?}"
+
+    # Show waiting reason
+    if [ "$status" != "Running" ]; then
+      reason=$($OC get pod "$name" -n openshift-storage -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || echo "")
+      message=$($OC get pod "$name" -n openshift-storage -o jsonpath='{.status.containerStatuses[0].state.waiting.message}' 2>/dev/null || echo "")
+      [ -n "$reason" ] && echo "     Reason: $reason"
+      [ -n "$message" ] && echo "     Message: $(echo "$message" | head -c 200)"
+    fi
+
+    # Show termination reason for crashlooping pods
+    if [ "${restarts:-0}" -gt 0 ]; then
+      term_reason=$($OC get pod "$name" -n openshift-storage -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null || echo "")
+      term_exit=$($OC get pod "$name" -n openshift-storage -o jsonpath='{.status.containerStatuses[0].lastState.terminated.exitCode}' 2>/dev/null || echo "")
+      [ -n "$term_reason" ] && echo "     Last Termination: $term_reason (exit code: ${term_exit:-?})"
+    fi
+
+    # Special check for noobaa-db-pg-cluster pods: check recent logs for known issues
+    case "$name" in noobaa-db-pg-cluster-*)
+      recent_log=$($OC logs "$name" -n openshift-storage --tail=5 2>/dev/null || echo "")
+      if echo "$recent_log" | grep -qi "low-disk space"; then
+        echo "     ⚠️  Detected low-disk space condition preventing Postgres startup"
+        echo "     ℹ️  WAL files may be accumulating. Consider deleting PVC and letting CNPG recreate the instance."
+      elif echo "$recent_log" | grep -qi "read-only file system"; then
+        echo "     ⚠️  Detected read-only filesystem on pgdata volume"
+      elif echo "$recent_log" | grep -qi "startup probe failing"; then
+        echo "     ⚠️  Postgres startup probe failing — could not establish connection"
+      fi
+      ;;
+    esac
+    echo
+  done < "$tmp_pods"
+
+  # Check CNPG cluster status if noobaa-db-pg pods exist
+  if $OC get cluster.postgresql.cnpg.noobaa.io noobaa-db-pg-cluster -n openshift-storage >/dev/null 2>&1; then
+    cluster_ready=$($OC get cluster.postgresql.cnpg.noobaa.io noobaa-db-pg-cluster -n openshift-storage -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+    if [ "$cluster_ready" != "True" ]; then
+      cluster_msg=$($OC get cluster.postgresql.cnpg.noobaa.io noobaa-db-pg-cluster -n openshift-storage -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
+      echo "  ❌ NooBaa CNPG Cluster not ready: ${cluster_msg:-Unknown}"
+      bad_found=1
+    else
+      echo "  ✅ NooBaa CNPG Cluster is ready"
+    fi
+  fi
+
+  if [ "$bad_found" -eq 0 ] && [ "$total" -gt 0 ]; then
+    echo "  ✅ All $total NooBaa pods healthy"
+  elif [ "$total" -eq 0 ]; then
+    echo "  ⚠️  No NooBaa pods found in openshift-storage"
+  fi
+
+  rm -f "$tmp_pods"
+  [ "$bad_found" -eq 0 ] && return 0 || return 1
+}
+
 run_troubleshoot_mode() {
   echo
   echo "▶ Troubleshoot Mode"
@@ -2881,11 +3594,21 @@ run_troubleshoot_mode() {
   # Check and fix Milvus etcd database space issues
   check_and_fix_milvus_etcd
   echo
-  
+
+  # Check NooBaa pods in openshift-storage
+  check_noobaa_pods || :
+  echo
+
   # Check pods with remediation options
   check_wo_pods_troubleshoot
   echo
-  
+
+  # Check all other pods in operands namespace (non wo-/milvus)
+  if [ "${CHECK_ALL_OPERAND_PODS:-1}" -eq 1 ]; then
+    check_all_operand_pods || :
+    echo
+  fi
+
   # Check if agentic_assistant or agentic_skills_assistant edition
   if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] || [ "${WXO_EDITION:-unknown}" = "agentic_skills_assistant" ]; then
     echo "Running eventing checks for ${WXO_EDITION} edition..."
@@ -2919,7 +3642,11 @@ run_troubleshoot_mode() {
       echo "  ⚠️  Some Knative Kafka checks failed (see details above)"
     fi
     echo
-    
+
+    # Check for failing pods in knative-eventing and ibm-knative-events namespaces
+    check_knative_eventing_pods || :
+    echo
+
     # Check Knative Brokers
     check_knative_brokers || :
     
@@ -2954,12 +3681,59 @@ run_troubleshoot_mode() {
 
 # Function to run all health checks
 # Parameter: skip_troubleshoot_items (optional) - set to 1 to skip items already checked in troubleshoot mode
+check_openshift_storage_pods() {
+  local ns="openshift-storage"
+  bad_found=0
+  total=0
+  echo "▶ Checking pods in namespace $ns"
+  tmp_list=`mktemp 2>/dev/null || echo "/tmp/storage_pods.$"`
+  tmp_bad=`mktemp  2>/dev/null || echo "/tmp/storage_bad.$"`
+  $OC -n "$ns" get pods --no-headers 2>/dev/null > "$tmp_list" || :
+  while IFS= read -r line; do
+    name="$(printf '%s\n' "$line" | awk '{print $1}')"
+    ready="$(printf '%s\n' "$line" | awk '{print $2}')"
+    status="$(printf '%s\n' "$line" | awk '{print $3}')"
+    restarts="$(printf '%s\n' "$line" | awk '{print $4}')"
+    age="$(printf '%s\n' "$line" | awk '{print $NF}')"
+    [ -z "$name" ] && continue
+    total=`expr "${total:-0}" + 1`
+    [ "$status" = "Completed" ] && continue
+    current=`echo "$ready" | awk -F/ '{print $1}'`
+    desired=`echo "$ready" | awk -F/ '{print $2}'`
+    if [ "$status" = "Running" ] && [ "$current" = "$desired" ]; then
+      :
+    else
+      printf "%s\t%s\t%s\t%s\t%s\n" "$name" "$ready" "$status" "${restarts:-?}" "${age:-?}" >> "$tmp_bad"
+      bad_found=1
+    fi
+  done < "$tmp_list"
+
+  if [ "${total:-0}" -eq 0 ]; then
+    echo "ℹ️  No pods found in namespace $ns (namespace may not exist or no access)"
+    rm -f "$tmp_list" "$tmp_bad"
+    return 0
+  fi
+  if [ "${bad_found:-0}" -eq 0 ]; then
+    echo "✅ All pods in $ns are healthy ($total pods checked)"
+    rm -f "$tmp_list" "$tmp_bad"
+    return 0
+  else
+    echo "❌ Some pods in $ns are not healthy:"
+    printf "%-60s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
+    printf "%-60s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
+    awk -F"\t" '{printf "%-60s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
+    prompt_restart_bad_pods "openshift-storage" "$tmp_bad"
+    rm -f "$tmp_list" "$tmp_bad"
+    return 1
+  fi
+}
+
 run_health_checks() {
   local skip_troubleshoot_items="${1:-0}"
   
   pods_ok=0; wo_cr_ok=0; wocs_ok=0; wa_cr_ok=0; ifm_cr_ok=0
   docproc_ok=0; de_ok=0; uab_ok=0
-  edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0; jobs_ok=0; knative_eventing_ok=0; operators_ok=0
+  edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0; jobs_ok=0; knative_eventing_ok=0; operators_ok=0; storage_pods_ok=0; all_operand_pods_ok=0
 
   # Check operators first (unless skipped in troubleshoot mode)
   if [ "$skip_troubleshoot_items" -eq 0 ]; then
@@ -3036,18 +3810,24 @@ run_health_checks() {
         if check_knative_eventing_deployment && check_ibm_events_operator && check_kafka_cluster && check_kafka_user_and_secret && check_knative_kafka; then
           knative_eventing_ok=0
         fi
+        check_knative_eventing_pods || knative_eventing_ok=1
+        check_knative_brokers       || knative_eventing_ok=1
+        check_knative_triggers      || knative_eventing_ok=1
       else
         # Not applicable for this edition, skip silently
         knative_eventing_ok=0
       fi
     fi
   else
-    # Knative Eventing already checked in troubleshoot mode, mark as ok
+    # All Knative checks already run in troubleshoot mode, skip entirely
     knative_eventing_ok=0
   fi
 
   if [ "${CHECK_OBC:-1}"  -eq 1 ]; then obc_ok=1;  if check_obc; then obc_ok=0; fi; fi
   if [ "${CHECK_WXD:-1}"  -eq 1 ]; then wxd_ok=1;  if check_wxd_engines; then wxd_ok=0; fi; fi
+
+  section "Checking OpenShift Storage"
+  if [ "${CHECK_STORAGE_PODS:-1}" -eq 1 ]; then storage_pods_ok=1; if check_openshift_storage_pods; then storage_pods_ok=0; fi; fi
 }
 
 # --------------------- Main retry loop ----------------------
@@ -3111,7 +3891,7 @@ if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
        && [ "$wa_cr_ok" -eq 0 ] && [ "$ifm_cr_ok" -eq 0 ] \
        && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
        && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
-       && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ]; then
+       && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ] && [ "$storage_pods_ok" -eq 0 ] && [ "$all_operand_pods_ok" -eq 0 ]; then
       echo "🎉 All enabled checks passed on attempt $TRY. Orchestrate is healthy."
       exit 0
     fi
@@ -3144,7 +3924,7 @@ else
        && [ "$wa_cr_ok" -eq 0 ] && [ "$ifm_cr_ok" -eq 0 ] \
        && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
        && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
-       && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ]; then
+       && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ] && [ "$storage_pods_ok" -eq 0 ] && [ "$all_operand_pods_ok" -eq 0 ]; then
       echo "🎉 All enabled checks passed on attempt $TRY. Orchestrate is healthy."
       exit 0
     fi
