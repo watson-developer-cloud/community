@@ -2147,6 +2147,7 @@ check_knative_triggers() {
   
   bad=0
   trigger_count=0
+  kafka_auth_error=0
   while IFS= read -r line; do
     name="$(printf '%s\n' "$line" | awk '{print $1}')"
     broker="$(printf '%s\n' "$line" | awk '{print $2}')"
@@ -2172,6 +2173,11 @@ check_knative_triggers() {
       echo "     Ready Status: ${ready_status:-Unknown}"
       echo "     Ready Reason: ${ready_reason:-Unknown}"
       echo "     Subscriber Status: ${subscriber_status:-Unknown}"
+      
+      # Check if this is a Kafka authentication/broker connection error
+      if echo "$ready_reason" | grep -qE "cannot obtain Kafka cluster admin|client has run out of available brokers|connection refused"; then
+        kafka_auth_error=1
+      fi
       bad=1
     fi
     echo
@@ -2181,6 +2187,50 @@ check_knative_triggers() {
   echo
   
   rm -f "$tmp_triggers"
+  
+  # If Kafka authentication error detected in triggers, offer to delete and recreate
+  if [ "$kafka_auth_error" -eq 1 ]; then
+    echo "  ⚠️  Detected Kafka broker connectivity/authentication issue in triggers"
+    echo "  ℹ️  This may require deleting and recreating the brokers and triggers"
+    echo
+    printf "  Would you like to delete and recreate brokers (knative-wa-clu-broker) and triggers (wo-wa-ke*)? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    
+    # Read with timeout
+    if read -t $USER_INPUT_TIMEOUT delete_recreate 2>/dev/null; then
+      : # User provided input
+    else
+      delete_recreate="n"
+      echo
+      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping broker/trigger recreation..."
+    fi
+    
+    if [ "$delete_recreate" = "y" ] || [ "$delete_recreate" = "Y" ]; then
+      echo
+      echo "  🗑️  Deleting brokers starting with 'knative-wa-clu-broker'..."
+      $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^knative-wa-clu-broker" | while read broker_name; do
+        echo "     Deleting broker: $broker_name"
+        $OCN delete broker "$broker_name" 2>/dev/null || echo "     Failed to delete $broker_name"
+      done
+      
+      echo
+      echo "  🗑️  Deleting triggers starting with 'wo-wa-ke'..."
+      $OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^wo-wa-ke" | while read trigger_name; do
+        echo "     Deleting trigger: $trigger_name"
+        $OCN delete trigger "$trigger_name" 2>/dev/null || echo "     Failed to delete $trigger_name"
+      done
+      
+      echo
+      echo "  ✅ Deletion complete. The Watson Assistant operator should recreate these resources automatically."
+      echo "  ℹ️  Please wait a few minutes for recreation, then re-run the health check"
+    else
+      echo
+      echo "  ℹ️  Skipping broker/trigger recreation. You can manually run:"
+      echo "     oc delete broker -n $PROJECT_CPD_INST_OPERANDS knative-wa-clu-broker"
+      echo "     oc delete trigger -n $PROJECT_CPD_INST_OPERANDS \$(oc get triggers -n $PROJECT_CPD_INST_OPERANDS --no-headers | grep '^wo-wa-ke' | awk '{print \$1}')"
+    fi
+    echo
+  fi
+  
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
