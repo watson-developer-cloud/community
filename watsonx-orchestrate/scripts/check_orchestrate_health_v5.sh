@@ -320,8 +320,16 @@ modify_size() {
   local wo_name="$1"
   local ns="$2"
   
+  # Get current size (empty if not set, which means default "medium")
+  local current_size=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.size}' 2>/dev/null || echo "")
+  
   echo ""
   echo "Available sizes: starter, small_mincpureq, small, medium, large"
+  if [ -z "$current_size" ]; then
+    echo "Current size: medium (default - not explicitly set)"
+  else
+    echo "Current size: $current_size"
+  fi
   echo -n "Enter new size (or 'cancel' to skip): "
   read -r new_size
   
@@ -332,9 +340,16 @@ modify_size() {
   
   case "$new_size" in
     starter|small_mincpureq|small|medium|large)
-      echo "Updating size to: $new_size"
-      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"size\":\"$new_size\"}}"
-      echo "✓ Size updated successfully"
+      # Check if already set to the desired value
+      if [ "$new_size" = "$current_size" ]; then
+        echo "ℹ️  Size is already set to: $new_size. No changes needed."
+      elif [ -z "$current_size" ] && [ "$new_size" = "medium" ]; then
+        echo "ℹ️  Size is already medium (default). No changes needed."
+      else
+        echo "Updating size to: $new_size"
+        $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"size\":\"$new_size\"}}"
+        echo "✓ Size updated successfully"
+      fi
       ;;
     *)
       echo "❌ Invalid size. Must be one of: starter, small_mincpureq, small, medium, large"
@@ -347,10 +362,15 @@ modify_hpa() {
   local wo_name="$1"
   local ns="$2"
   
-  local current=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.autoScaleConfig}' 2>/dev/null || echo "false")
+  # Get current HPA setting (empty if not set, which means HPA is disabled/false by default)
+  local current=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.autoScaleConfig}' 2>/dev/null || echo "")
   
   echo ""
-  echo "Current HPA (autoScaleConfig): $current"
+  if [ -z "$current" ]; then
+    echo "Current HPA (autoScaleConfig): false (default - not explicitly set)"
+  else
+    echo "Current HPA (autoScaleConfig): $current"
+  fi
   echo -n "Enable HPA? (true/false or 'cancel' to skip): "
   read -r new_hpa
   
@@ -361,9 +381,16 @@ modify_hpa() {
   
   case "$new_hpa" in
     true|false)
-      echo "Updating HPA to: $new_hpa"
-      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"autoScaleConfig\":$new_hpa}}"
-      echo "✓ HPA updated successfully"
+      # Check if already set to the desired value
+      if [ "$new_hpa" = "$current" ]; then
+        echo "ℹ️  HPA is already set to: $new_hpa. No changes needed."
+      elif [ -z "$current" ] && [ "$new_hpa" = "false" ]; then
+        echo "ℹ️  HPA is already disabled (default). No changes needed."
+      else
+        echo "Updating HPA to: $new_hpa"
+        $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"autoScaleConfig\":$new_hpa}}"
+        echo "✓ HPA updated successfully"
+      fi
       ;;
     *)
       echo "❌ Invalid value. Must be 'true' or 'false'"
@@ -1882,6 +1909,90 @@ check_knative_kafka() {
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
+fix_kafka_broker_secret() {
+  local NAMESPACE="knative-eventing"
+  local SECRET_NAME="ke-kafka-broker-secret"
+  local USER_SECRET="ke-kafka-user"
+  local CA_SECRET="knative-eventing-kafka-cluster-ca-cert"
+  
+  echo
+  echo "  🔧 Fixing Kafka broker secret..."
+  echo
+  
+  # Check for jq dependency
+  if ! command -v jq &> /dev/null; then
+    echo "  ❌ Error: jq is not installed. Cannot fix Kafka broker secret."
+    echo "  ℹ️  Please install jq and try again, or manually update the secret."
+    return 1
+  fi
+  
+  # Check if required secrets exist
+  if ! $OC get secret "$CA_SECRET" -n "$NAMESPACE" &>/dev/null; then
+    echo "  ❌ Error: CA secret '$CA_SECRET' not found in namespace '$NAMESPACE'"
+    return 1
+  fi
+  
+  if ! $OC get secret "$USER_SECRET" -n "$NAMESPACE" &>/dev/null; then
+    echo "  ❌ Error: User secret '$USER_SECRET' not found in namespace '$NAMESPACE'"
+    return 1
+  fi
+  
+  # Create or update the broker secret
+  if ! $OC get secret "$SECRET_NAME" -n "$NAMESPACE" &>/dev/null; then
+    echo "  📝 Creating Kafka broker secret..."
+    cat <<EOF | $OC create -f - 2>/dev/null
+apiVersion: v1
+kind: Secret
+metadata:
+  name: $SECRET_NAME
+  namespace: $NAMESPACE
+type: Opaque
+data:
+  ca.crt: U1NM
+  protocol: U1NM
+  user.crt: U1NM
+  user.key: U1NM
+EOF
+    if [ $? -ne 0 ]; then
+      echo "  ❌ Failed to create secret"
+      return 1
+    fi
+  else
+    echo "  ℹ️  Secret '$SECRET_NAME' already exists, updating values..."
+  fi
+  
+  # Populate the secret values
+  echo "  📝 Updating secret with correct certificates..."
+  
+  # Get CA certificate data
+  ca_cert_data=$($OC get secret "$CA_SECRET" -o jsonpath="{.data['ca\.crt']}" -n "$NAMESPACE" 2>/dev/null)
+  if [ -z "$ca_cert_data" ]; then
+    echo "  ❌ Failed to get CA certificate data"
+    return 1
+  fi
+  $OC get secret "$SECRET_NAME" -o json -n "$NAMESPACE" | jq --arg ca_cert "$ca_cert_data" '.data["ca.crt"]=$ca_cert' | $OC apply -f - >/dev/null 2>&1
+  
+  # Get user certificate data
+  user_cert_data=$($OC get secret "$USER_SECRET" -o jsonpath="{.data['user\.crt']}" -n "$NAMESPACE" 2>/dev/null)
+  if [ -z "$user_cert_data" ]; then
+    echo "  ❌ Failed to get user certificate data"
+    return 1
+  fi
+  $OC get secret "$SECRET_NAME" -o json -n "$NAMESPACE" | jq --arg user_cert "$user_cert_data" '.data["user.crt"]=$user_cert' | $OC apply -f - >/dev/null 2>&1
+  
+  # Get user key data
+  user_key_data=$($OC get secret "$USER_SECRET" -o jsonpath="{.data['user\.key']}" -n "$NAMESPACE" 2>/dev/null)
+  if [ -z "$user_key_data" ]; then
+    echo "  ❌ Failed to get user key data"
+    return 1
+  fi
+  $OC get secret "$SECRET_NAME" -o json -n "$NAMESPACE" | jq --arg user_key "$user_key_data" '.data["user.key"]=$user_key' | $OC apply -f - >/dev/null 2>&1
+  
+  echo "  ✅ Kafka broker secret has been successfully updated"
+  echo "  ℹ️  The broker should reconnect automatically within a few moments"
+  return 0
+}
+
 check_knative_brokers() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   echo "▶ Checking Knative Brokers"
@@ -1896,6 +2007,7 @@ check_knative_brokers() {
   fi
   
   bad=0
+  kafka_auth_error=0
   while IFS= read -r line; do
     name="$(printf '%s\n' "$line" | awk '{print $1}')"
     url="$(printf '%s\n' "$line" | awk '{print $2}')"
@@ -1904,6 +2016,7 @@ check_knative_brokers() {
     # Get detailed status
     ready_status=`$OCN get broker "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
     ready_reason=`$OCN get broker "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null || :`
+    ready_message=`$OCN get broker "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || :`
     
     if [ "${ready_status:-}" = "True" ]; then
       echo "  ✅ Broker: $name"
@@ -1914,12 +2027,63 @@ check_knative_brokers() {
       echo "     URL: ${url:-N/A}"
       echo "     Status: ${ready_status:-Unknown}"
       echo "     Reason: ${ready_reason:-Unknown}"
+      
+      # Check if this is a Kafka authentication/broker connection error
+      if echo "$ready_message" | grep -qE "cannot obtain Kafka cluster admin|client has run out of available brokers|connection refused"; then
+        echo "     Message: ${ready_message}"
+        kafka_auth_error=1
+      fi
       bad=1
     fi
     echo
   done < "$tmp_brokers"
   
   rm -f "$tmp_brokers"
+  
+  # If Kafka authentication error detected, offer to fix it
+  if [ "$kafka_auth_error" -eq 1 ]; then
+    echo "  ⚠️  Detected Kafka broker connectivity/authentication issue"
+    echo "  ℹ️  This is typically caused by expired or misconfigured certificates in the broker secret"
+    echo
+    printf "  Would you like to fix the Kafka broker secret automatically? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    
+    # Read with timeout
+    if read -t $USER_INPUT_TIMEOUT fix_kafka 2>/dev/null; then
+      : # User provided input
+    else
+      # Timeout or read not supported with -t
+      fix_kafka="n"
+      echo
+      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping Kafka broker secret fix..."
+    fi
+    
+    if [ "$fix_kafka" = "y" ] || [ "$fix_kafka" = "Y" ]; then
+      fix_kafka_broker_secret
+      if [ $? -eq 0 ]; then
+        echo
+        echo "  ⏳ Waiting 10 seconds for broker to reconnect..."
+        sleep 10
+        echo
+        echo "  🔄 Re-running Knative broker check to verify fix..."
+        echo
+        
+        # Re-run the broker check recursively (but only once to avoid infinite loop)
+        if [ "${KAFKA_FIX_RECHECK:-0}" -eq 0 ]; then
+          export KAFKA_FIX_RECHECK=1
+          check_knative_brokers
+          local recheck_result=$?
+          unset KAFKA_FIX_RECHECK
+          return $recheck_result
+        fi
+      fi
+    else
+      echo
+      echo "  ℹ️  Skipping Kafka broker secret fix. You can manually run:"
+      echo "     cd /path/to/wa-cpd-support/Scripts && bash fix_kafka_broker_secret_value.sh"
+    fi
+    echo
+  fi
+  
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
@@ -2698,10 +2862,10 @@ run_troubleshoot_mode() {
     echo
     
     # Check Knative Brokers
-    check_knative_brokers
+    check_knative_brokers || :
     
     # Check Knative Triggers
-    check_knative_triggers
+    check_knative_triggers || :
     
     # Check Watson Assistant operator verification if Assistant CR has issues
     echo
