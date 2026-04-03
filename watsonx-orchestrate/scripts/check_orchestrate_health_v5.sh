@@ -2029,7 +2029,10 @@ check_knative_brokers() {
       echo "     Reason: ${ready_reason:-Unknown}"
       
       # Check if this is a Kafka authentication/broker connection error
-      if echo "$ready_message" | grep -qE "cannot obtain Kafka cluster admin|client has run out of available brokers|connection refused"; then
+      # Check both reason and message fields
+      if echo "$ready_reason" | grep -qE "cannot obtain Kafka cluster admin|client has run out of available brokers|connection refused"; then
+        kafka_auth_error=1
+      elif echo "$ready_message" | grep -qE "cannot obtain Kafka cluster admin|client has run out of available brokers|connection refused"; then
         echo "     Message: ${ready_message}"
         kafka_auth_error=1
       fi
