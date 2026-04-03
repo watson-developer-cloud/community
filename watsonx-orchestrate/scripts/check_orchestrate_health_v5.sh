@@ -2041,89 +2041,50 @@ check_knative_brokers() {
   
   rm -f "$tmp_brokers"
   
-  # If Kafka authentication error detected, offer to fix it
-  if [ "$kafka_auth_error" -eq 1 ]; then
+  # If Kafka authentication error detected, offer to delete and recreate brokers/triggers
+  # Skip the certificate fix since connection refused means brokers aren't running
+  if [ "$kafka_auth_error" -eq 1 ] && [ "${KAFKA_FIX_ATTEMPTED:-0}" -eq 0 ]; then
     echo "  ⚠️  Detected Kafka broker connectivity/authentication issue"
-    echo "  ℹ️  This is typically caused by expired or misconfigured certificates in the broker secret"
+    echo "  ℹ️  This may require deleting and recreating the brokers and triggers"
     echo
-    printf "  Would you like to fix the Kafka broker secret automatically? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    printf "  Would you like to delete and recreate brokers (knative-wa-clu-broker) and triggers (wo-wa-ke*)? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
     
     # Read with timeout
-    if read -t $USER_INPUT_TIMEOUT fix_kafka 2>/dev/null; then
+    if read -t $USER_INPUT_TIMEOUT delete_recreate 2>/dev/null; then
       : # User provided input
     else
-      # Timeout or read not supported with -t
-      fix_kafka="n"
+      delete_recreate="n"
       echo
-      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping Kafka broker secret fix..."
+      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping broker/trigger recreation..."
     fi
     
-    if [ "$fix_kafka" = "y" ] || [ "$fix_kafka" = "Y" ]; then
-      fix_kafka_broker_secret
-      if [ $? -eq 0 ]; then
-        echo
-        echo "  ⏳ Waiting 10 seconds for broker to reconnect..."
-        sleep 10
-        echo
-        echo "  🔄 Re-running Knative broker check to verify fix..."
-        echo
-        
-        # Re-run the broker check recursively (but only once to avoid infinite loop)
-        if [ "${KAFKA_FIX_RECHECK:-0}" -eq 0 ]; then
-          export KAFKA_FIX_RECHECK=1
-          check_knative_brokers
-          local recheck_result=$?
-          unset KAFKA_FIX_RECHECK
-          
-          # If still failing after secret fix, offer to delete and recreate brokers/triggers
-          if [ $recheck_result -ne 0 ]; then
-            echo
-            echo "  ⚠️  Broker issue persists after certificate fix"
-            echo "  ℹ️  This may require deleting and recreating the brokers and triggers"
-            echo
-            printf "  Would you like to delete and recreate brokers (knative-wa-clu-broker) and triggers (wo-wa-ke*)? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
-            
-            # Read with timeout
-            if read -t $USER_INPUT_TIMEOUT delete_recreate 2>/dev/null; then
-              : # User provided input
-            else
-              delete_recreate="n"
-              echo
-              echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping broker/trigger recreation..."
-            fi
-            
-            if [ "$delete_recreate" = "y" ] || [ "$delete_recreate" = "Y" ]; then
-              echo
-              echo "  🗑️  Deleting brokers starting with 'knative-wa-clu-broker'..."
-              $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^knative-wa-clu-broker" | while read broker_name; do
-                echo "     Deleting broker: $broker_name"
-                $OCN delete broker "$broker_name" 2>/dev/null || echo "     Failed to delete $broker_name"
-              done
-              
-              echo
-              echo "  🗑️  Deleting triggers starting with 'wo-wa-ke'..."
-              $OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^wo-wa-ke" | while read trigger_name; do
-                echo "     Deleting trigger: $trigger_name"
-                $OCN delete trigger "$trigger_name" 2>/dev/null || echo "     Failed to delete $trigger_name"
-              done
-              
-              echo
-              echo "  ✅ Deletion complete. The Watson Assistant operator should recreate these resources automatically."
-              echo "  ℹ️  Please wait a few minutes for recreation, then re-run the health check"
-            else
-              echo
-              echo "  ℹ️  Skipping broker/trigger recreation. You can manually run:"
-              echo "     oc delete broker -n $PROJECT_CPD_INST_OPERANDS knative-wa-clu-broker"
-              echo "     oc delete trigger -n $PROJECT_CPD_INST_OPERANDS \$(oc get triggers -n $PROJECT_CPD_INST_OPERANDS --no-headers | grep '^wo-wa-ke' | awk '{print \$1}')"
-            fi
-          fi
-          
-          return $recheck_result
-        fi
-      fi
+    if [ "$delete_recreate" = "y" ] || [ "$delete_recreate" = "Y" ]; then
+      export KAFKA_FIX_ATTEMPTED=1
+      
+      echo
+      echo "  🗑️  Deleting brokers starting with 'knative-wa-clu-broker'..."
+      $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^knative-wa-clu-broker" | while read broker_name; do
+        echo "     Deleting broker: $broker_name"
+        $OCN delete broker "$broker_name" 2>/dev/null || echo "     Failed to delete $broker_name"
+      done
+      
+      echo
+      echo "  🗑️  Deleting triggers starting with 'wo-wa-ke'..."
+      $OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^wo-wa-ke" | while read trigger_name; do
+        echo "     Deleting trigger: $trigger_name"
+        $OCN delete trigger "$trigger_name" 2>/dev/null || echo "     Failed to delete $trigger_name"
+      done
+      
+      echo
+      echo "  ✅ Deletion complete. The Watson Assistant operator should recreate these resources automatically."
+      echo "  ℹ️  Please wait a few minutes for recreation, then re-run the health check"
     else
       echo
-      echo "  ℹ️  Skipping Kafka broker secret fix. You can manually run:"
+      echo "  ℹ️  Skipping broker/trigger recreation. You can manually run:"
+      echo "     oc delete broker -n $PROJECT_CPD_INST_OPERANDS knative-wa-clu-broker"
+      echo "     oc delete trigger -n $PROJECT_CPD_INST_OPERANDS \$(oc get triggers -n $PROJECT_CPD_INST_OPERANDS --no-headers | grep '^wo-wa-ke' | awk '{print \$1}')"
+      echo
+      echo "  ℹ️  Or try fixing the Kafka broker secret:"
       echo "     cd /path/to/wa-cpd-support/Scripts && bash fix_kafka_broker_secret_value.sh"
     fi
     echo
@@ -2189,7 +2150,8 @@ check_knative_triggers() {
   rm -f "$tmp_triggers"
   
   # If Kafka authentication error detected in triggers, offer to delete and recreate
-  if [ "$kafka_auth_error" -eq 1 ]; then
+  # Only ask if we haven't already attempted the fix
+  if [ "$kafka_auth_error" -eq 1 ] && [ "${KAFKA_FIX_ATTEMPTED:-0}" -eq 0 ]; then
     echo "  ⚠️  Detected Kafka broker connectivity/authentication issue in triggers"
     echo "  ℹ️  This may require deleting and recreating the brokers and triggers"
     echo
@@ -2205,6 +2167,8 @@ check_knative_triggers() {
     fi
     
     if [ "$delete_recreate" = "y" ] || [ "$delete_recreate" = "Y" ]; then
+      export KAFKA_FIX_ATTEMPTED=1
+      
       echo
       echo "  🗑️  Deleting brokers starting with 'knative-wa-clu-broker'..."
       $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^knative-wa-clu-broker" | while read broker_name; do
