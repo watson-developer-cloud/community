@@ -1290,16 +1290,16 @@ check_wo_pods() {
   done < "$tmp_list"
 
   if [ "${total_wo:-0}" -eq 0 ]; then
-    echo "❌ No pods found with prefix 'wo-' in namespace $PROJECT_CPD_INST_OPERANDS."
+    echo "  ❌ No pods found with prefix 'wo-' in namespace $PROJECT_CPD_INST_OPERANDS."
     rm -f "$tmp_list" "$tmp_bad"
     return 1
   fi
   if [ "${bad_found:-0}" -eq 0 ]; then
-    echo "✅ All Orchestrate pods are healthy"
+    echo "  ✅ All Orchestrate pods are healthy"
     rm -f "$tmp_list" "$tmp_bad"
     return 0
   else
-    echo "❌ Some pods are not healthy. Pods with issues:"
+    echo "  ❌ Some pods are not healthy. Pods with issues:"
   printf "%-55s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
   printf "%-55s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
   awk -F"\t" '{printf "%-55s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
@@ -1312,15 +1312,15 @@ check_wo_pods() {
 check_wo_cr() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   wo_name=`$OCN get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
-  if [ -z "$wo_name" ]; then echo "❌ watsonx Orchestrate CR not found oc get wo"; return 1; fi
+  if [ -z "$wo_name" ]; then echo "  ❌ watsonx Orchestrate CR not found oc get wo"; return 1; fi
   wo_ready=`$OCN get wo "$wo_name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
   wo_status=`$OCN get wo "$wo_name" -o jsonpath='{.status.watsonxOrchestrateStatus}' 2>/dev/null || :`
   wo_progress=`$OCN get wo "$wo_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
   if [ "$wo_ready" = "True" ] && [ "$wo_status" = "Completed" ] && [ "$wo_progress" = "100%" ]; then
-    echo "✅ watsonx Orchestrate ($wo_name): Ready=True, Status=Completed, Progress=100%"
+    echo "  ✅ watsonx Orchestrate ($wo_name): Ready=True, Status=Completed, Progress=100%"
     return 0
   else
-    echo "❌ watsonx Orchestrate ($wo_name): Ready=$wo_ready, Status=$wo_status, Progress=$wo_progress"
+    echo "  ❌ watsonx Orchestrate ($wo_name): Ready=$wo_ready, Status=$wo_status, Progress=$wo_progress"
     return 1
   fi
 }
@@ -1341,7 +1341,7 @@ check_all_operand_pods() {
     age="$(printf '%s\n' "$line" | awk '{print $NF}')"
     [ -z "$name" ] && continue
     # Skip pods already covered by check_wo_pods
-    case "$name" in wo-*|*milvus*) continue ;; esac
+    case "$name" in wo-*|*milvus*|sysbench-*) continue ;; esac
     total=`expr "${total:-0}" + 1`
     [ "$status" = "Completed" ] && continue
     current=`echo "$ready" | awk -F/ '{print $1}'`
@@ -1365,7 +1365,7 @@ check_all_operand_pods() {
     rm -f "$tmp_bad"
     return 0
   else
-    echo "  ❌ Some non orchestrate pods in $ns are not healthy:"
+    echo "  ⚠️  Some non orchestrate pods in $ns are not healthy:"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
     awk -F"\t" '{printf "%-60s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
@@ -1378,7 +1378,7 @@ check_all_operand_pods() {
 check_wocomponentservices() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   name=`$OCN get wocomponentservices.wo.watsonx.ibm.com --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
-  if [ -z "$name" ]; then echo "❌ WoComponentServices CR not found oc get wocomponentservices.wo.watsonx.ibm.com"; return 1; fi
+  if [ -z "$name" ]; then echo "  ❌ WoComponentServices CR not found oc get wocomponentservices.wo.watsonx.ibm.com"; return 1; fi
   comp_status=`$OCN get wocomponentservices.wo.watsonx.ibm.com "$name" -o jsonpath='{.status.componentStatus}' 2>/dev/null || :`
   deployed=`$OCN get wocomponentservices.wo.watsonx.ibm.com "$name" -o jsonpath='{.status.Deployed}' 2>/dev/null || :`
   upgrade=`$OCN get wocomponentservices.wo.watsonx.ibm.com "$name" -o jsonpath='{.status.Upgrade}' 2>/dev/null || :`
@@ -1392,10 +1392,10 @@ check_wocomponentservices() {
       gsub(/[,"]/, ""); sub(/^[[:space:]]*/, "");
       if ($0 ~ /: *false$/ || $0 ~ /: *False$/) print $0 }'` || :
   if { [ "$comp_status" = "FullInstallComplete" ] || [ "$comp_status" = "Reconciled" ] || [ "$comp_status" = "ReconciledLite" ]; } && [ "$failure" != "True" ]; then
-    echo "✅ WoComponentServices ($name): componentStatus=$comp_status, Deployed=${deployed:-?}, Upgrade=${upgrade:-?}, Successful=${successful:-?}, Running=${running:-?}"
+    echo "  ✅ WoComponentServices ($name): componentStatus=$comp_status, Deployed=${deployed:-?}, Upgrade=${upgrade:-?}, Successful=${successful:-?}, Running=${running:-?}"
     return 0
   else
-    echo "❌ WoComponentServices ($name): componentStatus=$comp_status, Deployed=${deployed:-?}, Upgrade=${upgrade:-?}, Successful=${successful:-?}, Running=${running:-?}"
+    echo "  ❌ WoComponentServices ($name): componentStatus=$comp_status, Deployed=${deployed:-?}, Upgrade=${upgrade:-?}, Successful=${successful:-?}, Running=${running:-?}"
     if [ -n "${false_components:-}" ]; then
       echo "   Components with DeployedStatus=false:"
       echo "$false_components" | awk -F: '{gsub(/[[:space:]]*/,"",$1); gsub(/[[:space:]]*/,"",$2); print "     - " $1 " = " tolower($2)}'
@@ -1407,15 +1407,15 @@ check_wocomponentservices() {
 check_wa_cr() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   wa_name=`$OCN get wa --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
-  if [ -z "$wa_name" ]; then echo "❌ watsonx Assistant CR not found oc get wa"; return 1; fi
+  if [ -z "$wa_name" ]; then echo "  ❌ watsonx Assistant CR not found oc get wa"; return 1; fi
   wa_ready=`$OCN get wa "$wa_name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
   wa_status=`$OCN get wa "$wa_name" -o jsonpath='{.status.watsonAssistantStatus}' 2>/dev/null || :`
   wa_progress=`$OCN get wa "$wa_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
   if [ "$wa_ready" = "True" ] && [ "$wa_status" = "Completed" ] && [ "$wa_progress" = "100%" ]; then
-    echo "✅ watsonx Assistant ($wa_name): Ready=True, Status=Completed, Progress=100%"
+    echo "  ✅ watsonx Assistant ($wa_name): Ready=True, Status=Completed, Progress=100%"
     return 0
   else
-    echo "❌ watsonx Assistant ($wa_name): Ready=$wa_ready, Status=$wa_status, Progress=$wa_progress"
+    echo "  ❌ watsonx Assistant ($wa_name): Ready=$wa_ready, Status=$wa_status, Progress=$wa_progress"
     
     # For agentic_assistant edition in health check mode, check waall resources
     if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] && [ "${TROUBLESHOOT_MODE:-0}" -eq 0 ]; then
@@ -1536,7 +1536,7 @@ process_rollout_info() {
       
       # Ask if user wants to see logs (redirect stdin from terminal)
       echo ""
-      printf "  Would you like to see the full log for $logfile? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+      printf "  Would you like to see the full log for $logfile? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
       
       if read -t $USER_INPUT_TIMEOUT show_logs </dev/tty 2>/dev/null; then
         : # User provided input
@@ -1575,16 +1575,16 @@ process_rollout_info() {
 check_ifm_cr() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   ifm_name=`$OCN get watsonxaiifm --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
-  if [ -z "$ifm_name" ]; then echo "❌ watsonx AI IFM CR not found oc get watsonxaiifm"; return 1; fi
+  if [ -z "$ifm_name" ]; then echo "  ❌ watsonx AI IFM CR not found oc get watsonxaiifm"; return 1; fi
   cond_success=`$OCN get watsonxaiifm "$ifm_name" -o jsonpath='{.status.conditions[?(@.type=="Successful")].status}' 2>/dev/null || :`
   cond_failure=`$OCN get watsonxaiifm "$ifm_name" -o jsonpath='{.status.conditions[?(@.type=="Failure")].status}' 2>/dev/null || :`
   ifm_status=`$OCN get watsonxaiifm "$ifm_name" -o jsonpath='{.status.watsonxaiifmStatus}' 2>/dev/null || :`
   ifm_progress=`$OCN get watsonxaiifm "$ifm_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
   if [ "$cond_success" = "True" ] && { [ "$cond_failure" = "False" ] || [ -z "$cond_failure" ]; } && [ "$ifm_status" = "Completed" ] && [ "$ifm_progress" = "100%" ]; then
-    echo "✅ IFM ($ifm_name): Successful=True, Failure=${cond_failure:-None}, Status=Completed, Progress=100%"
+    echo "  ✅ IFM ($ifm_name): Successful=True, Failure=${cond_failure:-None}, Status=Completed, Progress=100%"
     return 0
   else
-    echo "❌ IFM ($ifm_name): Successful=$cond_success, Failure=$cond_failure, Status=$ifm_status, Progress=$ifm_progress"
+    echo "  ❌ IFM ($ifm_name): Successful=$cond_success, Failure=$cond_failure, Status=$ifm_status, Progress=$ifm_progress"
     return 1
   fi
 }
@@ -1592,18 +1592,18 @@ check_ifm_cr() {
 check_docproc() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get documentprocessings.watsonx.ibm.com --no-headers 2>/dev/null | awk '$1 ~ /^wo-/'` || :
-  if [ -z "$rows" ]; then echo "❌ No DocumentProcessing CRs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No DocumentProcessing CRs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$rows" | while read name version status deployed verified age; do
     [ -z "$name" ] && continue
     if [ "$status" = "Completed" ]; then
       if [ -n "$deployed" ] && [ -n "$verified" ] && [ "$deployed" = "$verified" ]; then
-        echo "✅ DocumentProcessing $name: Status=$status, Deployed=$deployed, Verified=$verified"
+        echo "  ✅ DocumentProcessing $name: Status=$status, Deployed=$deployed, Verified=$verified"
       else
-        echo "✅ DocumentProcessing $name: Status=$status"
+        echo "  ✅ DocumentProcessing $name: Status=$status"
       fi
     else
-      echo "❌ DocumentProcessing $name: Status=${status:-Unknown}"
+      echo "  ❌ DocumentProcessing $name: Status=${status:-Unknown}"
       bad=1
     fi
   done
@@ -1613,18 +1613,18 @@ check_docproc() {
 check_digital_employees() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get digitalemployees.wo.watsonx.ibm.com --no-headers 2>/dev/null | awk '$1 ~ /^wo-/'` || :
-  if [ -z "$rows" ]; then echo "❌ No DigitalEmployees CRs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No DigitalEmployees CRs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$rows" | while read name ready age; do
     [ -z "$name" ] && continue
     if [ "$ready" = "True" ]; then
-      echo "✅ DigitalEmployees $name: Ready=True"
+      echo "  ✅ DigitalEmployees $name: Ready=True"
     else
       rdy=`$OCN get digitalemployees.wo.watsonx.ibm.com "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
       if [ "$rdy" = "True" ]; then
-        echo "✅ DigitalEmployees $name: Ready=True"
+        echo "  ✅ DigitalEmployees $name: Ready=True"
       else
-        echo "❌ DigitalEmployees $name: Ready=${rdy:-$ready}"
+        echo "  ❌ DigitalEmployees $name: Ready=${rdy:-$ready}"
         bad=1
       fi
     fi
@@ -1635,18 +1635,18 @@ check_digital_employees() {
 check_uab_ads() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get uabautomationdecisionservices.uab.ba.ibm.com --no-headers 2>/dev/null` || :
-  if [ -z "$rows" ]; then echo "❌ No UAB Automation Decision Services CRs found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No UAB Automation Decision Services CRs found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$rows" | while read name designer runtime ready version; do
     [ -z "$name" ] && continue
     if [ "$ready" = "True" ]; then
-      echo "✅ UAB ADS $name: Designer=$designer, Runtime=$runtime, Ready=True, Version=$version"
+      echo "  ✅ UAB ADS $name: Designer=$designer, Runtime=$runtime, Ready=True, Version=$version"
     else
       rdy=`$OCN get uabautomationdecisionservices.uab.ba.ibm.com "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
       if [ "$rdy" = "True" ]; then
-        echo "✅ UAB ADS $name: Designer=$designer, Runtime=$runtime, Ready=True, Version=$version"
+        echo "  ✅ UAB ADS $name: Designer=$designer, Runtime=$runtime, Ready=True, Version=$version"
       else
-        echo "❌ UAB ADS $name: Ready=${rdy:-$ready}, Designer=$designer, Runtime=$runtime, Version=$version"
+        echo "  ❌ UAB ADS $name: Ready=${rdy:-$ready}, Designer=$designer, Runtime=$runtime, Version=$version"
         bad=1
       fi
     fi
@@ -1657,7 +1657,7 @@ check_uab_ads() {
 check_edb_clusters() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   names=`$OCN get clusters.postgresql.k8s.enterprisedb.io --no-headers 2>/dev/null | awk '$1 ~ /^wo-/{print $1}'` || :
-  if [ -z "$names" ]; then echo "❌ No EDB Postgres clusters starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$names" ]; then echo "  ❌ No EDB Postgres clusters starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$names" | while read n; do
     [ -z "$n" ] && continue
@@ -1675,19 +1675,19 @@ check_edb_clusters() {
     fi
     echo "$status_text" | grep -qi "healthy" && healthy_phase=1 || healthy_phase=0
     if [ -z "$instances" ] || [ -z "$ready" ]; then
-      echo "❌ EDB cluster $n: could not determine Instances or Ready counts"
+      echo "  ❌ EDB cluster $n: could not determine Instances or Ready counts"
       bad=1
     elif [ "$ready" = "$instances" ] && [ "$healthy_phase" -eq 1 ]; then
       if [ -n "$primary_pod" ]; then
-        echo "✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text, Primary=$primary_pod"
+        echo "  ✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text, Primary=$primary_pod"
       else
-        echo "✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text"
+        echo "  ✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text"
       fi
     else
       if [ -n "$primary_pod" ]; then
-        echo "❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}, Primary=$primary_pod"
+        echo "  ❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}, Primary=$primary_pod"
       else
-        echo "❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}"
+        echo "  ❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}"
       fi
       bad=1
     fi
@@ -1702,7 +1702,7 @@ check_kafka_readiness() {
   $OCN get kafka -o 'custom-columns=NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status' --no-headers 2>/dev/null | awk '$1 ~ /^wo-/' > "$tmp_kafka" || :
 
   if [ ! -s "$tmp_kafka" ]; then
-    echo "❌ No Kafka resources starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"
+    echo "  ❌ No Kafka resources starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"
     rm -f "$tmp_kafka"
     return 1
   fi
@@ -1711,10 +1711,10 @@ check_kafka_readiness() {
   while read -r name ready; do
     [ -z "${name:-}" ] && continue
     if [ "${ready:-}" = "True" ]; then
-      echo "✅ Kafka $name: Ready=True"
+      echo "  ✅ Kafka $name: Ready=True"
     else
       val="${ready:-Unknown}"
-      echo "❌ Kafka $name: Ready=$val"
+      echo "  ❌ Kafka $name: Ready=$val"
       bad=1
     fi
   done < "$tmp_kafka"
@@ -1726,16 +1726,16 @@ check_kafka_readiness() {
 check_redis_cp() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get rediscps.redis.ibm.com --no-headers 2>/dev/null | awk '$1 ~ /^wo-/'` || :
-  if [ -z "$rows" ]; then echo "❌ No Redis CPs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No Redis CPs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$rows" | while read name version reconciled status age; do
     [ -z "$name" ] && continue
     ready=`$OCN get rediscps.redis.ibm.com "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
     if [ "$ready" = "True" ] || [ "$status" = "Completed" ]; then
-      echo "✅ RedisCP $name: Status=${ready:+Ready=True}${ready:+"; "}$status Reconciled=${reconciled:-unknown}"
+      echo "  ✅ RedisCP $name: Status=${ready:+Ready=True}${ready:+"; "}$status Reconciled=${reconciled:-unknown}"
     else
       val="${ready:-$status}"; [ -z "$val" ] && val="Unknown"
-      echo "❌ RedisCP $name: Status=$val Reconciled=${reconciled:-unknown}"
+      echo "  ❌ RedisCP $name: Status=$val Reconciled=${reconciled:-unknown}"
       bad=1
     fi
   done
@@ -1745,7 +1745,7 @@ check_redis_cp() {
 check_wxd_engines() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get wxdengines.watsonxdata.ibm.com --no-headers 2>/dev/null | awk '$1 ~ /^wo-/'` || :
-  if [ -z "$rows" ]; then echo "❌ No WXD engines starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No WXD engines starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   # Use process substitution to avoid subshell issue with pipe
   while read name version type display size reconcile status age; do
@@ -1753,16 +1753,16 @@ check_wxd_engines() {
     echo "$reconcile" | grep -qi "completed" && recon_ok=1 || recon_ok=0
     echo "$status" | grep -Eqi "^(running|completed)$" && phase_ok=1 || phase_ok=0
     if [ "$recon_ok" -eq 1 ] && [ "$phase_ok" -eq 1 ]; then
-      echo "✅ WXD engine $name (${type:-unknown}): Reconcile=$reconcile, Status=$status"
+      echo "  ✅ WXD engine $name (${type:-unknown}): Reconcile=$reconcile, Status=$status"
     else
       recon_json=`$OCN get wxdengines.watsonxdata.ibm.com "$name" -o jsonpath='{.status.reconcile}' 2>/dev/null || :`
       phase_json=`$OCN get wxdengines.watsonxdata.ibm.com "$name" -o jsonpath='{.status.phase}' 2>/dev/null || :`
       if { echo "${recon_json}" | grep -qi "completed"; } && { echo "${phase_json:-$status}" | grep -Eqi "^(running|completed)$"; }; then
-        echo "✅ WXD engine $name (${type:-unknown}): Reconcile=${recon_json:-$reconcile}, Status=${phase_json:-$status}"
+        echo "  ✅ WXD engine $name (${type:-unknown}): Reconcile=${recon_json:-$reconcile}, Status=${phase_json:-$status}"
       else
         val_recon="${reconcile:-${recon_json:-Unknown}}"
         val_phase="${status:-${phase_json:-Unknown}}"
-        echo "❌ WXD engine $name (${type:-unknown}): Reconcile=$val_recon, Status=$val_phase"
+        echo "  ❌ WXD engine $name (${type:-unknown}): Reconcile=$val_recon, Status=$val_phase"
         bad=1
       fi
     fi
@@ -1778,7 +1778,7 @@ check_obc() {
   $OCN get obc --no-headers 2>/dev/null | awk '$1 ~ /^wo-/' > "$tmp_obc" || :
 
   if [ ! -s "$tmp_obc" ]; then
-    echo "ℹ️ No OBC resources starting with 'wo-' found, skipping"
+    echo "  ℹ️ No OBC resources starting with 'wo-' found, skipping"
     rm -f "$tmp_obc"
     return 0
   fi
@@ -1790,9 +1790,9 @@ check_obc() {
     age="$(printf '%s\n' "$line" | awk '{print $4}')"
     [ -z "${name:-}" ] && continue
     if [ "${phase:-}" = "Bound" ]; then
-      echo "✅ OBC $name: Phase=Bound Age=${age:-?}"
+      echo "  ✅ OBC $name: Phase=Bound Age=${age:-?}"
     else
-      echo "❌ OBC $name: Phase=${phase:-Unknown} Age=${age:-?}"
+      echo "  ❌ OBC $name: Phase=${phase:-Unknown} Age=${age:-?}"
       bad=1
     fi
   done < "$tmp_obc"
@@ -1809,7 +1809,7 @@ check_jobs() {
   $OCN get jobs -l 'app.kubernetes.io/name in (watson-orchestrate,watson-assistant)' --no-headers 2>/dev/null > "$tmp_jobs" || :
   
   if [ ! -s "$tmp_jobs" ]; then
-    echo "ℹ️ No Orchestrate/Assistant jobs found, skipping"
+    echo "  ℹ️ No Orchestrate/Assistant jobs found, skipping"
     rm -f "$tmp_jobs"
     return 0
   fi
@@ -1852,15 +1852,15 @@ check_jobs() {
   done < "$tmp_jobs"
   
   if [ "${checked_count:-0}" -eq 0 ]; then
-    echo "ℹ️ No non-cronjob Orchestrate/Assistant jobs found (cronjobs excluded)"
+    echo "  ℹ️ No non-cronjob Orchestrate/Assistant jobs found (cronjobs excluded)"
     rm -f "$tmp_jobs"
     return 0
   fi
   
   if [ "$bad" -eq 0 ]; then
-    echo "✅ All Orchestrate/Assistant jobs completed successfully ($checked_count jobs checked)"
+    echo "  ✅ All Orchestrate/Assistant jobs completed successfully ($checked_count jobs checked)"
   else
-    echo "❌ Some Orchestrate/Assistant jobs have issues:"
+    echo "  ❌ Some Orchestrate/Assistant jobs have issues:"
     if [ -n "$failed_jobs" ]; then
       echo "$failed_jobs"
     fi
@@ -2046,7 +2046,7 @@ check_orchestrate_operators() {
   if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ -n "$scaled_down_operators" ]; then
     echo
     echo "⚠️  Scaled down operators detected: $scaled_down_operators"
-    printf "Would you like to scale up these operators to 1 replica? (y/n) [default: n, auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    printf "Would you like to scale up these operators to 1 replica? (y/N) [default: n, auto-skip in ${USER_INPUT_TIMEOUT}s]: "
     
     # Read with timeout
     if read -t $USER_INPUT_TIMEOUT scale_response </dev/tty 2>/dev/null; then
@@ -2212,7 +2212,7 @@ check_kafka_user_and_secret() {
 
   # Offer to fix the broker secret if it's missing or broken
   if [ "$secret_broken" -eq 1 ] && [ "${KAFKA_SECRET_FIX_ATTEMPTED:-0}" -eq 0 ]; then
-    printf "  Would you like to fix the Kafka broker secret? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    printf "  Would you like to fix the Kafka broker secret? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
     if read -t $USER_INPUT_TIMEOUT fix_secret 2>/dev/null; then
       : # User provided input
     else
@@ -2497,7 +2497,7 @@ attempt_knative_fix() {
   echo "     3. If still failing, delete and recreate brokers/triggers"
   echo
 
-  printf "  Would you like to attempt automatic fix? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+  printf "  Would you like to attempt automatic fix? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
 
   if read -t $USER_INPUT_TIMEOUT fix_answer 2>/dev/null; then
     : # User provided input
@@ -3065,7 +3065,7 @@ check_and_fix_milvus_etcd() {
   echo
   echo "  This requires compacting, defragmenting, and disarming the etcd database."
   echo
-  printf "  Would you like to fix this automatically? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+  printf "  Would you like to fix this automatically? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
   
   # Read with timeout
   if read -t $USER_INPUT_TIMEOUT fix_etcd 2>/dev/null; then
@@ -3210,7 +3210,7 @@ check_and_fix_milvus_etcd() {
             echo "  ⚠️  Defragmentation appears stuck (no file changes for ${no_change_count}0 seconds)"
             echo "  ℹ️  This can happen when etcd is severely degraded due to NOSPACE"
             echo
-            printf "  Would you like to kill defrag and restart the etcd pod? (y/n) [auto-continue in 15s]: "
+            printf "  Would you like to kill defrag and restart the etcd pod? (y/N) [auto-continue in 15s]: "
             
             if read -t 15 restart_choice 2>/dev/null; then
               : # User provided input
@@ -3454,14 +3454,14 @@ check_wo_pods_troubleshoot() {
   done < "$tmp_list"
 
   if [ "${total_wo:-0}" -eq 0 ]; then
-    echo "❌ No pods found with prefix 'wo-' in namespace $PROJECT_CPD_INST_OPERANDS."
+    echo "  ❌ No pods found with prefix 'wo-' in namespace $PROJECT_CPD_INST_OPERANDS."
     rm -f "$tmp_list" "$tmp_bad"
     return 1
   fi
   if [ "${bad_found:-0}" -eq 0 ]; then
-    echo "✅ All Orchestrate pods are healthy"
+    echo "  ✅ All Orchestrate pods are healthy"
     echo
-    printf "Would you like to check pod logs anyway? (y/n) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    printf "Would you like to check pod logs anyway? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
     
     # Read with timeout
     if read -t $USER_INPUT_TIMEOUT check_logs_response 2>/dev/null; then
@@ -3480,7 +3480,7 @@ check_wo_pods_troubleshoot() {
     rm -f "$tmp_list" "$tmp_bad"
     return 0
   else
-    echo "❌ Some pods are not healthy. Pods with issues:"
+    echo "  ❌ Some pods are not healthy. Pods with issues:"
     printf "%-55s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
     printf "%-55s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
     awk -F"\t" '{printf "%-55s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
@@ -3709,16 +3709,16 @@ check_openshift_storage_pods() {
   done < "$tmp_list"
 
   if [ "${total:-0}" -eq 0 ]; then
-    echo "ℹ️  No pods found in namespace $ns (namespace may not exist or no access)"
+    echo "  ℹ️  No pods found in namespace $ns (namespace may not exist or no access)"
     rm -f "$tmp_list" "$tmp_bad"
     return 0
   fi
   if [ "${bad_found:-0}" -eq 0 ]; then
-    echo "✅ All pods in $ns are healthy ($total pods checked)"
+    echo "  ✅ All pods in $ns are healthy ($total pods checked)"
     rm -f "$tmp_list" "$tmp_bad"
     return 0
   else
-    echo "❌ Some pods in $ns are not healthy:"
+    echo "  ❌ Some pods in $ns are not healthy:"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
     awk -F"\t" '{printf "%-60s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
@@ -3767,7 +3767,7 @@ run_health_checks() {
       if is_docproc_enabled_in_wo; then
         docproc_ok=1; if check_docproc; then docproc_ok=0; fi
       else
-        echo "ℹ️ DocumentProcessing not enabled in wo CR, skipping"
+        echo "  ℹ️ DocumentProcessing not enabled in wo CR, skipping"
       fi
     fi
     if [ -n "$de_present" ]  && [ "${CHECK_DE:-1}"      -eq 1 ]; then de_ok=1;      if check_digital_employees; then de_ok=0; fi; fi
@@ -3778,7 +3778,7 @@ run_health_checks() {
       if is_ifm_enabled_in_wo; then
         ifm_cr_ok=1; if check_ifm_cr; then ifm_cr_ok=0; fi
       else
-        echo "ℹ️ IFM disabled in wo CR, skipping"
+        echo "  ℹ️ IFM disabled in wo CR, skipping"
       fi
     fi
     if [ "${CHECK_DOCPROC:-1}" -eq 1 ]; then
@@ -3788,7 +3788,7 @@ run_health_checks() {
         if is_docproc_enabled_in_wo; then
           docproc_ok=1; if check_docproc; then docproc_ok=0; fi
         else
-          echo "ℹ️ DocumentProcessing not enabled in wo CR, skipping"
+          echo "  ℹ️ DocumentProcessing not enabled in wo CR, skipping"
         fi
       fi
     fi
