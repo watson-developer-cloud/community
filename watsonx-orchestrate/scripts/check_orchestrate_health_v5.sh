@@ -1622,7 +1622,7 @@ check_orchestrate_operators() {
   bad=0
   scaled_down_operators=""
   
-  echo "▶ Checking watsonx Orchestrate Operators"
+  echo "▶ Checking watsonx Orchestrate Operators and Dependencies"
   
   # Check wo-operator in operators namespace
   if $OC get deployment wo-operator -n "$PROJECT_CPD_INST_OPERATORS" >/dev/null 2>&1; then
@@ -1686,8 +1686,6 @@ check_orchestrate_operators() {
   
   # Check Watson Assistant operator if in agentic-assistant mode
   if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] || [ "${WXO_EDITION:-unknown}" = "agentic_skills_assistant" ]; then
-    echo
-    echo "▶ Checking Watson Assistant Operator (agentic edition detected)"
     
     # Check if WatsonAssistant CR exists
     wa_exists=$($OC get wa -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | wc -l)
