@@ -147,6 +147,32 @@ OC="oc"
 
 print_rule() { echo "------------------------------------------------------------"; }
 
+BOX_INNER_WIDTH=76
+
+print_box_blank() {
+  printf "║ %-${BOX_INNER_WIDTH}s ║\n" ""
+}
+
+sanitize_box_text() {
+  printf '%s' "$1" | sed \
+    -e 's/•/-/g' \
+    -e 's/⚠️/WARNING/g' \
+    -e 's/⚠/WARNING/g'
+}
+
+print_box_line() {
+  box_text=`sanitize_box_text "$1"`
+
+  if [ -z "$box_text" ]; then
+    print_box_blank
+    return
+  fi
+
+  printf '%s\n' "$box_text" | fold -s -w "$BOX_INNER_WIDTH" | while IFS= read -r box_line; do
+    printf "║ %-${BOX_INNER_WIDTH}s ║\n" "$box_line"
+  done
+}
+
 # Build a combined regex from LOG_NOISE_PATTERNS for grep -vE filtering
 build_noise_regex() {
   echo "$LOG_NOISE_PATTERNS" | sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | paste -sd'|' -
@@ -559,17 +585,23 @@ modify_image_digest() {
 
 # Function to modify component replicas and resources
 # Helper: build list of wo-* deployments and statefulsets with current replicas
+# Only includes components that are valid sizeMapping keys (wo- prefix stripped must match a known scalable component)
+_SCALABLE_COMPONENTS="agentic-task-manager agent-gateway ai-gateway ai-cognitive-mapper archer-server builder-ui connection-manager connector-service landing-page multi-skill-orchestration-ai new-teams-server openapi-provider platform-ui skill-catalog-ui skill-sequencing skill-server studio teams-server teams-ui tenant-controller tenant-registry tools-runtime-manager uiproxy wxo-connections wxo-connections-ui appconnect-skill-provider automation-discovery channel-integrations discover-skills discover-zos-adapter wxo-docker-proxy kafka kafka-zookeeper opensearch postgres rabbitmq jaeger-collector jaeger-query archer_de_client_mapper conversation_controller_mapper de-client de-server de-seeder socket_handler voice-controller wxo_chat_client"
 _list_wo_components() {
   local ns="$1"
   # Collect deployments
   $OC -n "$ns" get deployments --no-headers 2>/dev/null | awk '$1 ~ /^wo-/ {print $1" "$2}' | \
     while read cname ready; do
+      sm_key="${cname#wo-}"
+      echo "$_SCALABLE_COMPONENTS" | tr ' ' '\n' | grep -qx "$sm_key" || continue
       current=$(echo "$ready" | awk -F/ '{print $2}')
       echo "deploy|$cname|${current:-?}"
     done
   # Collect statefulsets
   $OC -n "$ns" get statefulsets --no-headers 2>/dev/null | awk '$1 ~ /^wo-/ {print $1" "$2}' | \
     while read cname ready; do
+      sm_key="${cname#wo-}"
+      echo "$_SCALABLE_COMPONENTS" | tr ' ' '\n' | grep -qx "$sm_key" || continue
       current=$(echo "$ready" | awk -F/ '{print $2}')
       echo "sts|$cname|${current:-?}"
     done
@@ -637,10 +669,11 @@ modify_component_sizing() {
       local idx=0
       while IFS='|' read -r ckind cname creplicas; do
         idx=$((idx + 1))
-        # Get sizeMapping override if any
-        local sm_replicas
+        # Get sizeMapping override if any (key is component name without wo- prefix)
+        local sm_key sm_replicas
+        sm_key="${cname#wo-}"
         sm_replicas=$($OC -n "$ns" get wo "$wo_name" \
-          -o jsonpath="{.spec.sizeMapping.$cname.replicas}" 2>/dev/null || echo "")
+          -o jsonpath="{.spec.sizeMapping.$sm_key.replicas}" 2>/dev/null || echo "")
         if [ -n "$sm_replicas" ]; then
           printf "%-3s %-48s %s (override: %s)\n" "$idx)" "$cname" "$creplicas" "$sm_replicas"
         else
@@ -663,11 +696,12 @@ modify_component_sizing() {
         return
       fi
 
+      local sm_key_1="${selected_name#wo-}"
       local cur_replicas
       cur_replicas=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.sizeMapping.$selected_name.replicas}" 2>/dev/null || echo "")
+        -o jsonpath="{.spec.sizeMapping.$sm_key_1.replicas}" 2>/dev/null || echo "")
       echo ""
-      echo "Component: $selected_name"
+      echo "Component: $selected_name (sizeMapping key: $sm_key_1)"
       echo "Current sizeMapping replicas: ${cur_replicas:-not overridden}"
       printf "Enter new replica count (or 'cancel'): "
       read -r new_replicas
@@ -679,9 +713,9 @@ modify_component_sizing() {
         return
       fi
 
-      echo "Updating replicas for $selected_name to $new_replicas..."
+      echo "Updating replicas for $sm_key_1 to $new_replicas..."
       $OC -n "$ns" patch wo "$wo_name" --type=merge \
-        -p "{\"spec\":{\"sizeMapping\":{\"$selected_name\":{\"replicas\":$new_replicas}}}}"
+        -p "{\"spec\":{\"sizeMapping\":{\"$sm_key_1\":{\"replicas\":$new_replicas}}}}"
       echo "✓ Replicas updated successfully"
       ;;
 
@@ -724,6 +758,7 @@ modify_component_sizing() {
       fi
 
       # Show live deployment values AND sizeMapping overrides side by side
+      local sm_key_2="${selected_name2#wo-}"
       echo ""
       echo "Fetching current resource values for $selected_name2..."
       local res_info
@@ -734,16 +769,16 @@ modify_component_sizing() {
       cur_cpu_lim=$(echo "$res_info" | awk -F'|' '{print $3}')
       cur_mem_lim=$(echo "$res_info" | awk -F'|' '{print $4}')
 
-      # Fetch sizeMapping overrides from WO CR
+      # Fetch sizeMapping overrides from WO CR (key is component name without wo- prefix)
       local sm_cpu_req sm_mem_req sm_cpu_lim sm_mem_lim
       sm_cpu_req=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.sizeMapping.$selected_name2.resources.requests.cpu}" 2>/dev/null || echo "")
+        -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.requests.cpu}" 2>/dev/null || echo "")
       sm_mem_req=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.sizeMapping.$selected_name2.resources.requests.memory}" 2>/dev/null || echo "")
+        -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.requests.memory}" 2>/dev/null || echo "")
       sm_cpu_lim=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.sizeMapping.$selected_name2.resources.limits.cpu}" 2>/dev/null || echo "")
+        -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.limits.cpu}" 2>/dev/null || echo "")
       sm_mem_lim=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.sizeMapping.$selected_name2.resources.limits.memory}" 2>/dev/null || echo "")
+        -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.limits.memory}" 2>/dev/null || echo "")
 
       # Helper to format a field: show override and live, or just live
       _fmt_field() {
@@ -756,7 +791,7 @@ modify_component_sizing() {
       }
 
       echo ""
-      echo "Component: $selected_name2"
+      echo "Component: $selected_name2 (sizeMapping key: $sm_key_2)"
       printf "  CPU request : %s\n" "$(_fmt_field "$cur_cpu_req" "$sm_cpu_req")"
       printf "  CPU limit   : %s\n" "$(_fmt_field "$cur_cpu_lim" "$sm_cpu_lim")"
       printf "  Mem request : %s\n" "$(_fmt_field "$cur_mem_req" "$sm_mem_req")"
@@ -807,9 +842,9 @@ modify_component_sizing() {
         return
       fi
 
-      echo "Updating resources for $selected_name2..."
+      echo "Updating resources for $sm_key_2..."
       $OC -n "$ns" patch wo "$wo_name" --type=merge \
-        -p "{\"spec\":{\"sizeMapping\":{\"$selected_name2\":{\"resources\":$resources_json}}}}"
+        -p "{\"spec\":{\"sizeMapping\":{\"$sm_key_2\":{\"resources\":$resources_json}}}}"
       echo "✓ Resources updated successfully"
       ;;
 
@@ -827,9 +862,10 @@ modify_component_sizing() {
       local idx3=0
       while IFS='|' read -r ckind cname creplicas; do
         idx3=$((idx3 + 1))
-        local sm_val
+        local sm_val sm_key3
+        sm_key3="${cname#wo-}"
         sm_val=$($OC -n "$ns" get wo "$wo_name" \
-          -o jsonpath="{.spec.sizeMapping.$cname}" 2>/dev/null || echo "")
+          -o jsonpath="{.spec.sizeMapping.$sm_key3}" 2>/dev/null || echo "")
         local override_label
         [ -n "$sm_val" ] && override_label="yes" || override_label="none"
         printf "%-3s %-48s %s\n" "$idx3)" "$cname" "$override_label"
@@ -850,10 +886,11 @@ modify_component_sizing() {
         return
       fi
 
-      echo "Removing sizeMapping override for $selected_name3..."
+      local sm_key_3="${selected_name3#wo-}"
+      echo "Removing sizeMapping override for $sm_key_3..."
       $OC -n "$ns" patch wo "$wo_name" --type=json \
-        -p "[{\"op\":\"remove\",\"path\":\"/spec/sizeMapping/$selected_name3\"}]" 2>/dev/null || \
-        echo "  ℹ️  No override found for $selected_name3 (nothing to remove)"
+        -p "[{\"op\":\"remove\",\"path\":\"/spec/sizeMapping/$sm_key_3\"}]" 2>/dev/null || \
+        echo "  ℹ️  No override found for $sm_key_3 (nothing to remove)"
       echo "✓ Done"
       ;;
 
@@ -947,61 +984,83 @@ print_header() {
   echo "║                                                                              ║"
   
   # Edition
-  printf "║ Edition: %-68s║\n" "${WXO_EDITION:-unknown}"
+  print_box_line "Edition: ${WXO_EDITION:-unknown}"
   
   # Detection method (show CR paths directly without label)
   if [ -n "${WXO_DETECT_NOTE:-}" ]; then
     echo "$WXO_DETECT_NOTE" | sed 's/ and /\n/g' | while IFS= read -r line; do
       [ -z "$line" ] && continue
-      printf "║   • %-73s║\n" "$line"
+      print_box_line "  • $line"
     done
   fi
-  echo "║                                                                              ║"
+  print_box_blank
   
   # Get WO CR info
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   wo_name=`$OCN get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
   
   if [ -n "$wo_name" ]; then
+    # DocProc (agentic document processing)
+    docproc_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.docproc.enabled}' 2>/dev/null || :`
+    if [ -n "$docproc_enabled" ]; then
+      case "$(echo "$docproc_enabled" | tr '[:upper:]' '[:lower:]')" in
+        true)
+          print_box_line "DocProc (Agentic): Enabled"
+          print_box_line "  • wo.spec.docproc.enabled=true" ;;
+        false)
+          print_box_line "DocProc (Agentic): Disabled"
+          print_box_line "  • wo.spec.docproc.enabled=false" ;;
+        *)
+          print_box_line "DocProc (Agentic): Disabled (default)"
+          print_box_line "  • wo.spec.docproc.enabled=Not Present" ;;
+      esac
+    else
+      print_box_line "DocProc (Agentic): Disabled (default)"
+      print_box_line "  • wo.spec.docproc.enabled=Not Present"
+    fi
+    print_box_blank
+
     # Size (no emoji)
     wo_size=`$OCN get wo "$wo_name" -o jsonpath='{.spec.size}' 2>/dev/null || :`
     if [ -n "$wo_size" ]; then
-      printf "║ Size: %-71s║\n" "$wo_size"
-      printf "║   • wo.spec.size=%-60s║\n" "$wo_size"
+      print_box_line "Size: $wo_size"
+      print_box_line "  • wo.spec.size=$wo_size"
     else
-      printf "║ Size: %-71s║\n" "medium (default)"
-      printf "║   • wo.spec.size=%-60s║\n" "Not Present"
+      print_box_line "Size: medium (default)"
+      print_box_line "  • wo.spec.size=Not Present"
     fi
+    print_box_blank
     
     # HPA (no emoji)
     hpa_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.autoScaleConfig}' 2>/dev/null || :`
     if [ -n "$hpa_enabled" ]; then
       case "$(echo "$hpa_enabled" | tr '[:upper:]' '[:lower:]')" in
         true)
-          printf "║ HPA: %-72s║\n" "Enabled"
-          printf "║   • wo.spec.autoScaleConfig=%-49s║\n" "true" ;;
+          print_box_line "HPA: Enabled"
+          print_box_line "  • wo.spec.autoScaleConfig=true" ;;
         false)
-          printf "║ HPA: %-72s║\n" "Disabled"
-          printf "║   • wo.spec.autoScaleConfig=%-49s║\n" "false" ;;
+          print_box_line "HPA: Disabled"
+          print_box_line "  • wo.spec.autoScaleConfig=false" ;;
         *)
-          printf "║ HPA: %-72s║\n" "Disabled (default)"
-          printf "║   • wo.spec.autoScaleConfig=%-49s║\n" "Not Present" ;;
+          print_box_line "HPA: Disabled (default)"
+          print_box_line "  • wo.spec.autoScaleConfig=Not Present" ;;
       esac
     else
-      printf "║ HPA: %-72s║\n" "Disabled (default)"
-      printf "║   • wo.spec.autoScaleConfig=%-49s║\n" "Not Present"
+      print_box_line "HPA: Disabled (default)"
+      print_box_line "  • wo.spec.autoScaleConfig=Not Present"
     fi
+    print_box_blank
     
     # IFM (no emoji)
     ifm_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.wxolite.enable_ifm}' 2>/dev/null || :`
     if [ -n "$ifm_enabled" ]; then
       case "$(echo "$ifm_enabled" | tr '[:upper:]' '[:lower:]')" in
         true)
-          printf "║ IFM: %-72s║\n" "Enabled"
-          printf "║   • wo.spec.wxolite.enable_ifm=%-46s║\n" "true"
+          print_box_line "IFM: Enabled"
+          print_box_line "  • wo.spec.wxolite.enable_ifm=true"
           models_json=`$OCN get wo "$wo_name" -o jsonpath='{.spec.wxolite.ifm.model_config}' 2>/dev/null || :`
           if [ -n "$models_json" ] && [ "$models_json" != "{}" ] && [ "$models_json" != "null" ]; then
-            printf "║   %-75s║\n" "Models configured:"
+            print_box_line "  Models configured:"
             tmp_models=`mktemp 2>/dev/null || echo "/tmp/wo_models.$$"`
             $OCN get wo "$wo_name" -o json 2>/dev/null | \
               awk '
@@ -1044,25 +1103,54 @@ print_header() {
                 replica_info="${replicas:-default}"
                 shard_info="${shards:-default}"
                 model_line="• ${mtype}/${mname} (r=${replica_info}, s=${shard_info})"
-                printf "║     %-73s║\n" "$model_line"
+                print_box_line "    $model_line"
               done < "$tmp_models"
             fi
             rm -f "$tmp_models"
           fi
           ;;
         false)
-          printf "║ IFM: %-72s║\n" "Disabled"
-          printf "║   • wo.spec.wxolite.enable_ifm=%-46s║\n" "false" ;;
+          print_box_line "IFM: Disabled"
+          print_box_line "  • wo.spec.wxolite.enable_ifm=false" ;;
         *)
-          printf "║ IFM: %-72s║\n" "Disabled (default)"
-          printf "║   • wo.spec.wxolite.enable_ifm=%-46s║\n" "Not Present" ;;
+          print_box_line "IFM: Disabled (default)"
+          print_box_line "  • wo.spec.wxolite.enable_ifm=Not Present" ;;
       esac
     else
-      printf "║ IFM: %-72s║\n" "Disabled (default)"
-      printf "║   • wo.spec.wxolite.enable_ifm=%-46s║\n" "Not Present"
+      print_box_line "IFM: Disabled (default)"
+      print_box_line "  • wo.spec.wxolite.enable_ifm=Not Present"
+    fi
+    print_box_blank
+
+    # Active-Active Configuration
+    aa_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.activeActive.enabled}' 2>/dev/null || :`
+    aa_seed=`$OCN get wo "$wo_name" -o jsonpath='{.spec.activeActive.activeActiveSeed}' 2>/dev/null || :`
+    if [ -n "$aa_enabled" ]; then
+      case "$(echo "$aa_enabled" | tr '[:upper:]' '[:lower:]')" in
+        true)
+          if [ -n "$aa_seed" ]; then
+            print_box_line "Active-Active: Enabled"
+            print_box_line "  • wo.spec.activeActive.enabled=true"
+            print_box_line "  • wo.spec.activeActive.activeActiveSeed=$aa_seed"
+          else
+            print_box_line "Active-Active: Enabled (⚠️  no seed)"
+            print_box_line "  • wo.spec.activeActive.enabled=true"
+            print_box_line "  • wo.spec.activeActive.activeActiveSeed=Not Set"
+          fi
+          ;;
+        false)
+          print_box_line "Active-Active: Disabled"
+          print_box_line "  • wo.spec.activeActive.enabled=false" ;;
+        *)
+          print_box_line "Active-Active: Disabled (default)"
+          print_box_line "  • wo.spec.activeActive.enabled=Not Present" ;;
+      esac
+    else
+      print_box_line "Active-Active: Disabled (default)"
+      print_box_line "  • wo.spec.activeActive.enabled=Not Present"
     fi
   else
-    printf "║ ⚠️  %-74s║\n" "WO CR not found - cannot retrieve configuration details"
+    print_box_line "⚠️  WO CR not found - cannot retrieve configuration details"
   fi
   
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
@@ -1316,6 +1404,7 @@ check_wo_cr() {
   wo_ready=`$OCN get wo "$wo_name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
   wo_status=`$OCN get wo "$wo_name" -o jsonpath='{.status.watsonxOrchestrateStatus}' 2>/dev/null || :`
   wo_progress=`$OCN get wo "$wo_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
+  
   if [ "$wo_ready" = "True" ] && [ "$wo_status" = "Completed" ] && [ "$wo_progress" = "100%" ]; then
     echo "  ✅ watsonx Orchestrate ($wo_name): Ready=True, Status=Completed, Progress=100%"
     return 0
@@ -1937,109 +2026,60 @@ check_knative_eventing_deployment() {
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
 
+check_requested_operator() {
+  operator_label="$1"
+  deployment_pattern="$2"
+
+  dep_name=`$OC get deployment -n "$PROJECT_CPD_INST_OPERATORS" -o name 2>/dev/null | sed 's|deployment.apps/||' | grep -E "$deployment_pattern" | head -n1` || :
+  [ -z "$dep_name" ] && return 0
+
+  checked_requested_operators=1
+  ready=$($OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+  desired=$($OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+
+  if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
+    echo "  ✅ $operator_label ($dep_name) is ready ($ready/$desired replicas)"
+  else
+    if [ "$desired" = "0" ]; then
+      echo "  ⚠️  $operator_label ($dep_name) is scaled down (0 replicas)"
+      scaled_down_operators="${scaled_down_operators}${dep_name} "
+    else
+      echo "  ❌ $operator_label ($dep_name) not ready ($ready/$desired replicas)"
+    fi
+    bad=1
+  fi
+}
+
 check_orchestrate_operators() {
-  # Check watsonx Orchestrate operators and Watson Assistant operator (for agentic editions)
-  # This function works in both health check and troubleshoot modes
   bad=0
   scaled_down_operators=""
-  
-  echo "▶ Checking watsonx Orchestrate Operators and Dependencies"
-  
-  # Check wo-operator in operators namespace
-  if $OC get deployment wo-operator -n "$PROJECT_CPD_INST_OPERATORS" >/dev/null 2>&1; then
-    ready=$($OC get deployment wo-operator -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-    desired=$($OC get deployment wo-operator -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
-    if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
-      echo "  ✅ wo-operator is ready ($ready/$desired replicas)"
-    else
-      if [ "$desired" = "0" ]; then
-        echo "  ⚠️  wo-operator is scaled down (0 replicas)"
-        scaled_down_operators="${scaled_down_operators}wo-operator "
-      else
-        echo "  ❌ wo-operator not ready ($ready/$desired replicas)"
-      fi
-      bad=1
-    fi
-  else
-    echo "  ❌ wo-operator deployment not found in $PROJECT_CPD_INST_OPERATORS"
-    bad=1
+  checked_requested_operators=0
+
+  echo "▶ Checking Requested Operators"
+
+  for spec in \
+    'postgresql::^postgresql-operator-controller-manager' \
+    'watson_gateway::^gateway-operator$' \
+    'data_governor::^ibm-data-governor-operator$' \
+    'opencontent_opensearch::^ibm-opensearch-operator-controller-manager$' \
+    'ibm_redis_cp::^ibm-redis-cp-operator$' \
+    'ccs::^ibm-cpd-ccs-operator$' \
+    'watsonx_ai_ifm::^ibm-cpd-watsonx-ai-ifm-operator$' \
+    'watson_assistant::^ibm-watson-assistant-operator$' \
+    'watsonx_data::^ibm-lakehouse-controller-manager$' \
+    'analyticsengine::analyticsengine|analytics-engine'
+  do
+    operator_label="${spec%%::*}"
+    deployment_pattern="${spec#*::}"
+    check_requested_operator "$operator_label" "$deployment_pattern"
+  done
+
+  if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ]; then
+    check_requested_operator "events_operator" '^ibm-events-(cluster-)?operator$'
   fi
-  
-  # Check ibm-wxo-componentcontroller-manager in operators namespace
-  if $OC get deployment ibm-wxo-componentcontroller-manager -n "$PROJECT_CPD_INST_OPERATORS" >/dev/null 2>&1; then
-    ready=$($OC get deployment ibm-wxo-componentcontroller-manager -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-    desired=$($OC get deployment ibm-wxo-componentcontroller-manager -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
-    if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
-      echo "  ✅ ibm-wxo-componentcontroller-manager is ready ($ready/$desired replicas)"
-    else
-      if [ "$desired" = "0" ]; then
-        echo "  ⚠️  ibm-wxo-componentcontroller-manager is scaled down (0 replicas)"
-        scaled_down_operators="${scaled_down_operators}ibm-wxo-componentcontroller-manager "
-      else
-        echo "  ❌ ibm-wxo-componentcontroller-manager not ready ($ready/$desired replicas)"
-      fi
-      bad=1
-    fi
-  else
-    echo "  ❌ ibm-wxo-componentcontroller-manager deployment not found in $PROJECT_CPD_INST_OPERATORS"
-    bad=1
-  fi
-  
-  # Check IBM Events Operator in operators namespace
-  if $OC get deployment -n "$PROJECT_CPD_INST_OPERATORS" -o name 2>/dev/null | grep -qE 'ibm-events-(cluster-)?operator'; then
-    events_deploy=$($OC get deployment -n "$PROJECT_CPD_INST_OPERATORS" -o name 2>/dev/null | grep -E 'ibm-events-(cluster-)?operator' | head -n1 | sed 's|deployment.apps/||')
-    ready=$($OC get deployment "$events_deploy" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-    desired=$($OC get deployment "$events_deploy" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
-    if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
-      echo "  ✅ IBM Events Operator ($events_deploy) is ready ($ready/$desired replicas)"
-    else
-      if [ "$desired" = "0" ]; then
-        echo "  ⚠️  IBM Events Operator ($events_deploy) is scaled down (0 replicas)"
-        scaled_down_operators="${scaled_down_operators}${events_deploy} "
-      else
-        echo "  ❌ IBM Events Operator ($events_deploy) not ready ($ready/$desired replicas)"
-      fi
-      bad=1
-    fi
-  else
-    echo "  ℹ️  IBM Events Operator deployment not found in $PROJECT_CPD_INST_OPERATORS (may be in ibm-knative-events namespace)"
-  fi
-  
-  # Check Watson Assistant operator if in agentic-assistant mode
-  if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] || [ "${WXO_EDITION:-unknown}" = "agentic_skills_assistant" ]; then
-    
-    # Check if WatsonAssistant CR exists
-    wa_exists=$($OC get wa -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | wc -l)
-    if [ "$wa_exists" -gt 0 ]; then
-      # Check Watson Assistant operator deployment
-      wa_operator_found=0
-      for dep_name in ibm-watson-assistant-operator watson-assistant-operator wa-operator assistant-operator; do
-        if $OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" >/dev/null 2>&1; then
-          wa_operator_found=1
-          ready=$($OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-          desired=$($OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
-          if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
-            echo "  ✅ Watson Assistant operator ($dep_name) is ready ($ready/$desired replicas)"
-          else
-            if [ "$desired" = "0" ]; then
-              echo "  ⚠️  Watson Assistant operator ($dep_name) is scaled down (0 replicas)"
-              scaled_down_operators="${scaled_down_operators}${dep_name} "
-            else
-              echo "  ❌ Watson Assistant operator ($dep_name) not ready ($ready/$desired replicas)"
-            fi
-            bad=1
-          fi
-          break
-        fi
-      done
-      
-      if [ "$wa_operator_found" -eq 0 ]; then
-        echo "  ❌ Watson Assistant operator deployment not found in $PROJECT_CPD_INST_OPERATORS"
-        bad=1
-      fi
-    else
-      echo "  ℹ️  No WatsonAssistant CR found, skipping operator check"
-    fi
+
+  if [ "$checked_requested_operators" = "0" ]; then
+    echo "  ℹ️  None of the requested operator deployments were found in $PROJECT_CPD_INST_OPERATORS"
   fi
   
   # In troubleshoot mode ONLY, offer to scale up operators if they're scaled down
@@ -3942,5 +3982,3 @@ else
   echo "❌ Exhausted MAX_TRIES=$MAX_TRIES without passing all enabled checks. Exiting with code 1."
   exit 1
 fi
-
-
