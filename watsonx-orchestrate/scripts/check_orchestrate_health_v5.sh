@@ -1391,7 +1391,9 @@ check_wo_pods() {
   printf "%-55s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
   printf "%-55s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
   awk -F"\t" '{printf "%-55s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
-    prompt_restart_bad_pods "$PROJECT_CPD_INST_OPERANDS" "$tmp_bad"
+    if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
+      prompt_restart_bad_pods "$PROJECT_CPD_INST_OPERANDS" "$tmp_bad"
+    fi
     rm -f "$tmp_list" "$tmp_bad"
     return 1
   fi
@@ -1458,7 +1460,9 @@ check_all_operand_pods() {
     printf "%-60s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
     awk -F"\t" '{printf "%-60s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
-    prompt_restart_bad_pods "$ns" "$tmp_bad"
+    if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
+      prompt_restart_bad_pods "$ns" "$tmp_bad"
+    fi
     rm -f "$tmp_bad"
     return 1
   fi
@@ -1892,13 +1896,22 @@ check_obc() {
 
 check_jobs() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
-  
-  # Get jobs by labels: watson-orchestrate and watson-assistant
+
+  # For agentic edition, only check watson-orchestrate jobs (no watson-assistant)
+  if [ "${WXO_EDITION:-unknown}" = "agentic" ]; then
+    job_label='app.kubernetes.io/name=watson-orchestrate'
+    job_desc="Orchestrate"
+  else
+    job_label='app.kubernetes.io/name in (watson-orchestrate,watson-assistant)'
+    job_desc="Orchestrate/Assistant"
+  fi
+
+  # Get jobs by labels
   tmp_jobs=`mktemp 2>/dev/null || echo "/tmp/wo_jobs.$$"`
-  $OCN get jobs -l 'app.kubernetes.io/name in (watson-orchestrate,watson-assistant)' --no-headers 2>/dev/null > "$tmp_jobs" || :
-  
+  $OCN get jobs -l "$job_label" --no-headers 2>/dev/null > "$tmp_jobs" || :
+
   if [ ! -s "$tmp_jobs" ]; then
-    echo "  ℹ️ No Orchestrate/Assistant jobs found, skipping"
+    echo "  ℹ️ No $job_desc jobs found, skipping"
     rm -f "$tmp_jobs"
     return 0
   fi
@@ -1941,15 +1954,15 @@ check_jobs() {
   done < "$tmp_jobs"
   
   if [ "${checked_count:-0}" -eq 0 ]; then
-    echo "  ℹ️ No non-cronjob Orchestrate/Assistant jobs found (cronjobs excluded)"
+    echo "  ℹ️ No non-cronjob $job_desc jobs found (cronjobs excluded)"
     rm -f "$tmp_jobs"
     return 0
   fi
   
   if [ "$bad" -eq 0 ]; then
-    echo "  ✅ All Orchestrate/Assistant jobs completed successfully ($checked_count jobs checked)"
+    echo "  ✅ All $job_desc jobs completed successfully ($checked_count jobs checked)"
   else
-    echo "  ❌ Some Orchestrate/Assistant jobs have issues:"
+    echo "  ❌ Some $job_desc jobs have issues:"
     if [ -n "$failed_jobs" ]; then
       echo "$failed_jobs"
     fi
@@ -2711,7 +2724,9 @@ check_knative_eventing_pods() {
       done < "$tmp_ke_raw"
     done
     rm -f "$tmp_ke_raw"
-    prompt_restart_bad_pods "knative-eventing" "$tmp_bad_ke"
+    if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
+      prompt_restart_bad_pods "knative-eventing" "$tmp_bad_ke"
+    fi
     rm -f "$tmp_bad_ke"
   fi
 
@@ -3059,44 +3074,288 @@ list_recent_errors_all_pods() {
 
 check_and_fix_milvus_etcd() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
-  
+
   echo
-  echo "▶ Checking Milvus Etcd Database Space"
+  echo "▶ Checking Milvus Etcd Health"
   echo
-  
-  # Check if etcd pod exists
-  etcd_pod=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-etcd" | grep "Running" | awk '{print $1}' | head -1)
-  
-  if [ -z "$etcd_pod" ]; then
-    echo "  ℹ️  No Milvus etcd pod found or pod not running"
+
+  # --- Phase 1: Detect etcd pod with stale BoltDB file lock (unclean shutdown) ---
+  # The flock issue can present as CrashLoopBackOff, Error, or even "Running 0/1"
+  # (pod is technically running but etcd is blocked waiting for the lock and will
+  # fail the liveness probe). Detection is log-driven: find any milvus-etcd pod
+  # and check its logs for the flock signature.
+  flock_pod=""
+
+  # First check CrashLoopBackOff / Error pods
+  flock_pod=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-etcd" | grep -E "CrashLoopBackOff|Error|Init:CrashLoopBackOff" | awk '{print $1}' | head -1)
+
+  if [ -z "$flock_pod" ]; then
+    # Also check pods that are Running but not ready (0/N) — the pre-CrashLoopBackOff state.
+    # The pod may have 0 restarts if it just started, or N restarts if it's been cycling.
+    # Either way, if logs show the flock error, it needs recovery.
+    flock_pod=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-etcd" | awk '$2 ~ /^0\// {print $1}' | head -1)
+  fi
+
+  # Confirm flock error via logs before proceeding with recovery
+  if [ -n "$flock_pod" ]; then
+    if ! $OCN logs "$flock_pod" --tail=100 2>/dev/null | grep -q "db file is flocked by another process"; then
+      flock_pod=""  # Not the flock issue, let Phase 2 handle it
+    fi
+  fi
+
+  if [ -n "$flock_pod" ]; then
+    pod_status=$($OCN get pod "$flock_pod" --no-headers 2>/dev/null | awk '{print $3}')
+    restart_count=$($OCN get pod "$flock_pod" --no-headers 2>/dev/null | awk '{print $4}')
+    echo "  ❌ Milvus etcd pod is unhealthy: $flock_pod (Status: $pod_status, Restarts: $restart_count)"
+    echo
+
+    # Check logs for the stale BoltDB file lock signature
+    etcd_logs=$($OCN logs "$flock_pod" --tail=100 2>/dev/null || true)
+    flock_error=0
+    if echo "$etcd_logs" | grep -q "db file is flocked by another process"; then
+      echo "  🔍 Root cause: Stale BoltDB file lock on etcd data directory"
+      echo "     The etcd data file /etcd/member/snap/db is locked by a previous unclean shutdown."
+      echo "     etcd cannot acquire the lock, causing liveness probe timeouts and restart loops."
+      flock_error=1
+    else
+      echo "  🔍 Checking pod logs for known error patterns..."
+      # Show last few log lines for diagnosis
+      if [ -n "$etcd_logs" ]; then
+        echo "     Recent logs:"
+        echo "$etcd_logs" | tail -5 | sed 's/^/       /'
+      fi
+    fi
+    echo
+
+    # Get the StatefulSet name
+    etcd_sts=$($OCN get statefulset --no-headers 2>/dev/null | grep "milvus-etcd" | awk '{print $1}' | head -1)
+
+    if [ -z "$etcd_sts" ]; then
+      echo "  ⚠️  Cannot find Milvus etcd StatefulSet. Manual intervention required."
+      return 1
+    fi
+
+    echo "  📦 StatefulSet: $etcd_sts"
+    echo
+    echo "  Recovery plan:"
+    echo "     1. Scale down the etcd StatefulSet to 0"
+    echo "     2. Patch it to run 'sleep' instead of etcd (so we can rsh in)"
+    echo "     3. Scale back up and delete the stale /etcd/member directory"
+    echo "     4. Remove the sleep override and let etcd start fresh"
+    echo "     5. Verify recovery"
+    echo
+    echo "  ℹ️  Milvus uses etcd only for internal metadata. All vector data is in object"
+    echo "     storage (MinIO/COS). Deleting /etcd/member causes etcd to reinitialize and"
+    echo "     Milvus will repopulate its metadata on next startup. No data is lost."
+    echo
+    printf "  Would you like to fix this automatically? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+
+    if read -t $USER_INPUT_TIMEOUT fix_flock 2>/dev/null; then
+      : # User provided input
+    else
+      fix_flock="n"
+      echo
+      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping fix..."
+    fi
+
+    if [ "$fix_flock" != "y" ] && [ "$fix_flock" != "Y" ]; then
+      echo
+      echo "  ℹ️  Skipping etcd flock fix. You can manually run these commands:"
+      echo "     1. Scale down:  oc -n $PROJECT_CPD_INST_OPERANDS scale statefulset $etcd_sts --replicas=0"
+      echo "     2. Patch sleep: oc -n $PROJECT_CPD_INST_OPERANDS patch statefulset $etcd_sts --type=json -p='[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/command\",\"value\":[\"sh\",\"-c\",\"sleep 3600\"]}]'"
+      echo "     3. Scale up:    oc -n $PROJECT_CPD_INST_OPERANDS scale statefulset $etcd_sts --replicas=1"
+      echo "     4. Delete data: oc -n $PROJECT_CPD_INST_OPERANDS rsh <pod> sh -c 'rm -rf /etcd/member && echo DONE'"
+      echo "     5. Unpatch:     oc -n $PROJECT_CPD_INST_OPERANDS patch statefulset $etcd_sts --type=json -p='[{\"op\":\"remove\",\"path\":\"/spec/template/spec/containers/0/command\"}]'"
+      echo "     6. Delete pod:  oc -n $PROJECT_CPD_INST_OPERANDS delete pod <pod>"
+      return 0
+    fi
+
+    echo
+    echo "  🔧 Fixing Milvus etcd stale file lock..."
+    echo
+
+    # Step 1: Scale down the etcd StatefulSet
+    echo "  1️⃣  Scaling down StatefulSet $etcd_sts to 0 replicas..."
+    if $OCN scale statefulset "$etcd_sts" --replicas=0 2>&1; then
+      echo "  ✅ Scaled down successfully"
+    else
+      echo "  ❌ Failed to scale down StatefulSet"
+      return 1
+    fi
+
+    # Wait for pod to terminate
+    echo "  ⏳ Waiting for pod to terminate..."
+    timeout=120
+    start=$(date +%s)
+    while $OCN get pod "$flock_pod" --no-headers 2>/dev/null | grep -q .; do
+      sleep 5
+      now=$(date +%s)
+      if [ $((now - start)) -gt $timeout ]; then
+        echo "  ⚠️  Timeout waiting for pod to terminate, proceeding anyway..."
+        break
+      fi
+    done
+    echo "  ✅ Pod terminated"
+    echo
+
+    # Step 2: Patch the StatefulSet to run sleep instead of etcd
+    echo "  2️⃣  Patching StatefulSet to run 'sleep' command..."
+    if $OCN patch statefulset "$etcd_sts" \
+      --type=json \
+      -p='[{"op":"add","path":"/spec/template/spec/containers/0/command","value":["sh","-c","sleep 3600"]}]' 2>&1; then
+      echo "  ✅ Patched successfully"
+    else
+      echo "  ❌ Failed to patch StatefulSet"
+      return 1
+    fi
+    echo
+
+    # Step 3: Scale back up to 1 replica
+    echo "  3️⃣  Scaling StatefulSet back to 1 replica..."
+    if $OCN scale statefulset "$etcd_sts" --replicas=1 2>&1; then
+      echo "  ✅ Scaled up successfully"
+    else
+      echo "  ❌ Failed to scale up StatefulSet"
+      return 1
+    fi
+
+    # Wait for the sleep pod to be Running
+    echo "  ⏳ Waiting for sleep pod to reach Running state..."
+    timeout=120
+    start=$(date +%s)
+    while true; do
+      pod_status=$($OCN get pod "$flock_pod" --no-headers 2>/dev/null | awk '{print $3}')
+      if [ "$pod_status" = "Running" ]; then
+        echo "  ✅ Pod is Running (with sleep command)"
+        break
+      fi
+      sleep 5
+      now=$(date +%s)
+      if [ $((now - start)) -gt $timeout ]; then
+        echo "  ⚠️  Timeout waiting for pod to start. Current status: $pod_status"
+        echo "  ℹ️  You may need to check the pod manually."
+        return 1
+      fi
+    done
+    echo
+
+    # Step 4: Delete the stale etcd member directory
+    echo "  4️⃣  Deleting stale etcd member directory..."
+    delete_output=$($OCN rsh "$flock_pod" sh -c "rm -rf /etcd/member && echo DONE" 2>&1)
+    if echo "$delete_output" | grep -q "DONE"; then
+      echo "  ✅ Deleted /etcd/member successfully"
+    else
+      echo "  ❌ Failed to delete /etcd/member: $delete_output"
+      echo "  ℹ️  Attempting to restore original StatefulSet command before returning..."
+      $OCN patch statefulset "$etcd_sts" \
+        --type=json \
+        -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>/dev/null || true
+      return 1
+    fi
+    echo
+
+    # Step 5: Remove the sleep command override
+    echo "  5️⃣  Removing sleep command override from StatefulSet..."
+    if $OCN patch statefulset "$etcd_sts" \
+      --type=json \
+      -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>&1; then
+      echo "  ✅ Restored original etcd command"
+    else
+      echo "  ❌ Failed to remove sleep override"
+      return 1
+    fi
+    echo
+
+    # Step 6: Delete the pod to restart with the original etcd command
+    echo "  6️⃣  Deleting pod to restart with original etcd command..."
+    $OCN delete pod "$flock_pod" 2>&1 || true
+
+    # Wait for etcd pod to be ready
+    echo "  ⏳ Waiting for etcd pod to recover..."
+    timeout=180
+    start=$(date +%s)
+    while true; do
+      ready=$($OCN get pod "$flock_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+      if [ "$ready" = "True" ]; then
+        echo "  ✅ Etcd pod is Ready!"
+        break
+      fi
+      sleep 5
+      now=$(date +%s)
+      if [ $((now - start)) -gt $timeout ]; then
+        pod_status=$($OCN get pod "$flock_pod" --no-headers 2>/dev/null | awk '{print $3}')
+        echo "  ⚠️  Timeout waiting for etcd pod to become ready. Current status: $pod_status"
+        echo "  ℹ️  Check pod status: oc -n $PROJECT_CPD_INST_OPERANDS get pod $flock_pod"
+        return 1
+      fi
+    done
+    echo
+
+    # Step 7: Verify recovery via logs
+    echo "  7️⃣  Verifying recovery..."
+    sleep 5
+    recovery_logs=$($OCN logs "$flock_pod" --tail=20 2>/dev/null || true)
+    if echo "$recovery_logs" | grep -q "ready to serve client requests"; then
+      echo "  ✅ Milvus etcd stale lock recovery completed successfully!"
+      echo "     etcd is serving client requests."
+    elif echo "$recovery_logs" | grep -q "became leader"; then
+      echo "  ✅ Milvus etcd stale lock recovery completed successfully!"
+      echo "     etcd elected leader."
+    else
+      echo "  ℹ️  etcd pod is Ready but could not confirm 'serving' in logs yet."
+      echo "     Recent logs:"
+      echo "$recovery_logs" | tail -5 | sed 's/^/       /'
+      echo "     Check again shortly: oc -n $PROJECT_CPD_INST_OPERANDS logs $flock_pod --tail=15"
+    fi
+    echo
+
     return 0
   fi
-  
+
+  # --- Phase 2: Check running etcd pod for NOSPACE issues ---
+  etcd_pod=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-etcd" | grep "Running" | awk '{print $1}' | head -1)
+
+  if [ -z "$etcd_pod" ]; then
+    # Check if any etcd pod exists at all (could be Pending, Unknown, etc.)
+    any_etcd=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-etcd" | head -1)
+    if [ -n "$any_etcd" ]; then
+      echo "  ⚠️  Milvus etcd pod exists but is not Running:"
+      echo "     $any_etcd"
+      echo "  ℹ️  Check pod events: oc -n $PROJECT_CPD_INST_OPERANDS describe pod $(echo "$any_etcd" | awk '{print $1}')"
+    else
+      echo "  ℹ️  No Milvus etcd pod found"
+    fi
+    return 0
+  fi
+
   echo "  📦 Found etcd pod: $etcd_pod"
   echo
-  
+
+  echo "  🔍 Checking Milvus Etcd Database..."
+  echo
+
   # Check for NOSPACE alarms in etcd pod itself
   echo "  🔍 Checking etcd pod for NOSPACE alarms..."
   space_error_found=0
-  
+
   if $OCN logs "$etcd_pod" --tail=200 2>/dev/null | grep -q "ALARM NOSPACE"; then
     echo "  ⚠️  Found 'ALARM NOSPACE' in etcd pod: $etcd_pod"
     space_error_found=1
   fi
-  
+
   # Check for database space exceeded errors in Milvus pods
   echo "  🔍 Checking Milvus pods for 'database space exceeded' errors..."
   milvus_pods=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-standalone" | awk '{print $1}')
-  
+
   for pod in $milvus_pods; do
     if $OCN logs "$pod" --tail=100 2>/dev/null | grep -qE "database space exceeded|mvcc: database space exceeded"; then
       echo "  ⚠️  Found 'database space exceeded' error in pod: $pod"
       space_error_found=1
     fi
   done
-  
+
   if [ "$space_error_found" -eq 0 ]; then
-    echo "  ✅ No etcd space issues found"
+    echo "  ✅ No etcd issues found"
     return 0
   fi
   
@@ -3134,17 +3393,33 @@ check_and_fix_milvus_etcd() {
   echo "  ℹ️  Compaction may timeout but defrag should still work."
   echo
   
-  # Step 1: Get current revision (with fallback)
-  echo "  1️⃣  Getting current etcd revision..."
-  revision=$($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl endpoint status --write-out=json' 2>/dev/null | jq -r '.[0].Status.header.revision' 2>/dev/null)
-  
+  # Step 1: Get current revision and DB size info
+  echo "  1️⃣  Getting etcd status..."
+  etcd_status_json=$($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl endpoint status --write-out=json' 2>/dev/null || true)
+  revision=$(echo "$etcd_status_json" | jq -r '.[0].Status.header.revision' 2>/dev/null || true)
+  db_size_bytes=$(echo "$etcd_status_json" | jq -r '.[0].Status.dbSize' 2>/dev/null || true)
+  db_in_use_bytes=$(echo "$etcd_status_json" | jq -r '.[0].Status.dbSizeInUse' 2>/dev/null || true)
+
   skip_compact=false
   if [ -z "$revision" ] || [ "$revision" = "null" ]; then
     echo "  ⚠️  Cannot get revision (etcd is unresponsive due to NOSPACE)"
     echo "  ℹ️  Skipping compact step and going directly to defragmentation"
     skip_compact=true
   else
+    # Show revision with context
+    db_size_mb=$(( ${db_size_bytes:-0} / 1024 / 1024 ))
+    db_in_use_mb=$(( ${db_in_use_bytes:-0} / 1024 / 1024 ))
     echo "  ✅ Current revision: $revision"
+    echo "     DB size: ${db_size_mb}MB | In-use: ${db_in_use_mb}MB | Quota: 2048MB (2GB)"
+    if [ "$db_in_use_mb" -gt 0 ] && [ "$db_size_mb" -gt 0 ]; then
+      reclaimable_mb=$((db_size_mb - db_in_use_mb))
+      if [ "$reclaimable_mb" -lt 50 ]; then
+        echo "  ⚠️  Only ~${reclaimable_mb}MB reclaimable by defrag — data itself is near quota"
+        echo "  ℹ️  If defrag does not help, the script will offer to wipe and reinitialize etcd"
+      else
+        echo "  ℹ️  ~${reclaimable_mb}MB reclaimable by defragmentation"
+      fi
+    fi
   fi
   echo
   
@@ -3250,8 +3525,8 @@ check_and_fix_milvus_etcd() {
             echo "  ⚠️  Defragmentation appears stuck (no file changes for ${no_change_count}0 seconds)"
             echo "  ℹ️  This can happen when etcd is severely degraded due to NOSPACE"
             echo
-            printf "  Would you like to kill defrag and restart the etcd pod? (y/N) [auto-continue in 15s]: "
-            
+            printf "  Would you like to kill defrag and wipe/reinitialize etcd? (y/N) [auto-continue in 15s]: "
+
             if read -t 15 restart_choice 2>/dev/null; then
               : # User provided input
             else
@@ -3259,36 +3534,86 @@ check_and_fix_milvus_etcd() {
               echo
               echo "  ⏱️  No input received, continuing to wait for defrag..."
             fi
-            
+
             if [ "$restart_choice" = "y" ] || [ "$restart_choice" = "Y" ]; then
               echo
               echo "  🔄 Killing stuck defrag process..."
               kill $defrag_pid 2>/dev/null || true
               wait $defrag_pid 2>/dev/null || true
-              
-              echo "  🔄 Restarting etcd pod to clear locks..."
-              $OCN delete pod "$etcd_pod" --grace-period=30
-              
-              echo "  ⏳ Waiting for etcd pod to restart..."
-              sleep 30
-              
-              # Wait for pod to be ready
-              timeout=120
-              start=$(date +%s)
+
+              echo "  ℹ️  Defrag cannot help — data itself exceeds quota."
+              echo "  ℹ️  Wiping /etcd/member and reinitializing (Milvus will repopulate metadata)."
+              echo
+
+              # Get the StatefulSet name
+              etcd_sts=$($OCN get statefulset --no-headers 2>/dev/null | grep "milvus-etcd" | awk '{print $1}' | head -1)
+              if [ -z "$etcd_sts" ]; then
+                echo "  ❌ Cannot find Milvus etcd StatefulSet"
+                return 1
+              fi
+
+              echo "  1️⃣  Scaling down StatefulSet $etcd_sts to 0..."
+              $OCN scale statefulset "$etcd_sts" --replicas=0 2>&1 || true
+              echo "  ⏳ Waiting for pod to terminate..."
+              timeout=120; start=$(date +%s)
+              while $OCN get pod "$etcd_pod" --no-headers 2>/dev/null | grep -q .; do
+                sleep 5; now=$(date +%s)
+                [ $((now - start)) -gt $timeout ] && { echo "  ⚠️  Timeout, proceeding..."; break; }
+              done
+
+              echo "  2️⃣  Patching StatefulSet to run sleep..."
+              $OCN patch statefulset "$etcd_sts" --type=json \
+                -p='[{"op":"add","path":"/spec/template/spec/containers/0/command","value":["sh","-c","sleep 3600"]}]' 2>&1 || true
+
+              echo "  3️⃣  Scaling back to 1..."
+              $OCN scale statefulset "$etcd_sts" --replicas=1 2>&1 || true
+              echo "  ⏳ Waiting for sleep pod..."
+              timeout=120; start=$(date +%s)
               while true; do
-                if $OCN get pod "$etcd_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
-                  echo "  ✅ Etcd pod restarted successfully"
+                ps=$($OCN get pod "$etcd_pod" --no-headers 2>/dev/null | awk '{print $3}')
+                [ "$ps" = "Running" ] && break
+                sleep 5; now=$(date +%s)
+                [ $((now - start)) -gt $timeout ] && { echo "  ⚠️  Timeout waiting for sleep pod"; return 1; }
+              done
+
+              echo "  4️⃣  Deleting /etcd/member..."
+              del_out=$($OCN rsh "$etcd_pod" sh -c "rm -rf /etcd/member && echo DONE" 2>&1)
+              if ! echo "$del_out" | grep -q "DONE"; then
+                echo "  ❌ Failed to delete /etcd/member: $del_out"
+                $OCN patch statefulset "$etcd_sts" --type=json \
+                  -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>/dev/null || true
+                return 1
+              fi
+              echo "  ✅ Deleted /etcd/member"
+
+              echo "  5️⃣  Removing sleep override..."
+              $OCN patch statefulset "$etcd_sts" --type=json \
+                -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>&1 || true
+
+              echo "  6️⃣  Deleting pod to restart with fresh etcd..."
+              $OCN delete pod "$etcd_pod" 2>&1 || true
+
+              echo "  ⏳ Waiting for etcd pod to recover (up to 3 minutes)..."
+              timeout=180; start=$(date +%s)
+              while true; do
+                ready=$($OCN get pod "$etcd_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+                if [ "$ready" = "True" ]; then
+                  echo "  ✅ Etcd pod is Ready!"
                   echo
-                  echo "  ℹ️  After restart, you may need to:"
-                  echo "     1. Re-run the health check script"
-                  echo "     2. Try the defrag operation again"
-                  echo "     3. Check if NOSPACE alarm is cleared"
-                  return 2  # Special return code to indicate restart happened
+                  sleep 5
+                  rlogs=$($OCN logs "$etcd_pod" --tail=20 2>/dev/null || true)
+                  if echo "$rlogs" | grep -q "ready to serve client requests"; then
+                    echo "  ✅ etcd reinitialized and serving client requests"
+                  elif echo "$rlogs" | grep -q "became leader"; then
+                    echo "  ✅ etcd reinitialized and elected leader"
+                  fi
+                  return 0
                 fi
-                sleep 5
-                now=$(date +%s)
+                sleep 5; now=$(date +%s)
                 if [ $((now - start)) -gt $timeout ]; then
-                  echo "  ⚠️  Timeout waiting for etcd pod to restart"
+                  ps=$($OCN get pod "$etcd_pod" --no-headers 2>/dev/null | awk '{print $3}')
+                  echo "  ⚠️  Timeout waiting for etcd. Current status: $ps"
+                  echo "  ℹ️  Check: oc -n $PROJECT_CPD_INST_OPERANDS get pod $etcd_pod"
                   return 1
                 fi
               done
@@ -3338,6 +3663,50 @@ check_and_fix_milvus_etcd() {
         echo "  ℹ️  Will retry defragmentation..."
       else
         echo "  ❌ All defragmentation attempts exhausted"
+        echo "  ℹ️  Defrag cannot reclaim space when the data itself exceeds the quota."
+        echo "  ℹ️  The only fix is to wipe /etcd/member and let Milvus reinitialize."
+        echo
+        printf "  Would you like to wipe and reinitialize etcd now? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+        if read -t $USER_INPUT_TIMEOUT wipe_choice 2>/dev/null; then :; else wipe_choice="n"; echo; fi
+        if [ "$wipe_choice" = "y" ] || [ "$wipe_choice" = "Y" ]; then
+          # Reuse the same wipe procedure
+          etcd_sts=$($OCN get statefulset --no-headers 2>/dev/null | grep "milvus-etcd" | awk '{print $1}' | head -1)
+          if [ -z "$etcd_sts" ]; then echo "  ❌ Cannot find StatefulSet"; return 1; fi
+          echo "  🔧 Wiping and reinitializing etcd..."
+          $OCN scale statefulset "$etcd_sts" --replicas=0 2>&1 || true
+          timeout=120; start=$(date +%s)
+          while $OCN get pod "$etcd_pod" --no-headers 2>/dev/null | grep -q .; do
+            sleep 5; now=$(date +%s); [ $((now - start)) -gt $timeout ] && break
+          done
+          $OCN patch statefulset "$etcd_sts" --type=json \
+            -p='[{"op":"add","path":"/spec/template/spec/containers/0/command","value":["sh","-c","sleep 3600"]}]' 2>&1 || true
+          $OCN scale statefulset "$etcd_sts" --replicas=1 2>&1 || true
+          timeout=120; start=$(date +%s)
+          while true; do
+            ps=$($OCN get pod "$etcd_pod" --no-headers 2>/dev/null | awk '{print $3}')
+            [ "$ps" = "Running" ] && break
+            sleep 5; now=$(date +%s); [ $((now - start)) -gt $timeout ] && { echo "  ⚠️  Timeout"; return 1; }
+          done
+          del_out=$($OCN rsh "$etcd_pod" sh -c "rm -rf /etcd/member && echo DONE" 2>&1)
+          if ! echo "$del_out" | grep -q "DONE"; then
+            echo "  ❌ Failed: $del_out"
+            $OCN patch statefulset "$etcd_sts" --type=json \
+              -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>/dev/null || true
+            return 1
+          fi
+          echo "  ✅ Deleted /etcd/member"
+          $OCN patch statefulset "$etcd_sts" --type=json \
+            -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>&1 || true
+          $OCN delete pod "$etcd_pod" 2>&1 || true
+          echo "  ⏳ Waiting for etcd to recover (up to 3 minutes)..."
+          timeout=180; start=$(date +%s)
+          while true; do
+            ready=$($OCN get pod "$etcd_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+            [ "$ready" = "True" ] && { echo "  ✅ Etcd reinitialized and ready!"; return 0; }
+            sleep 5; now=$(date +%s)
+            [ $((now - start)) -gt $timeout ] && { echo "  ⚠️  Timeout"; return 1; }
+          done
+        fi
         return 1
       fi
     fi
@@ -3628,11 +3997,11 @@ run_troubleshoot_mode() {
   echo
   
   # Check operators first
-  check_orchestrate_operators
+  check_orchestrate_operators || :
   echo
-  
-  # Check and fix Milvus etcd database space issues
-  check_and_fix_milvus_etcd
+
+  # Check and fix Milvus etcd issues (CrashLoopBackOff + database space)
+  check_and_fix_milvus_etcd || :
   echo
 
   # Check NooBaa pods in openshift-storage
@@ -3640,7 +4009,7 @@ run_troubleshoot_mode() {
   echo
 
   # Check pods with remediation options
-  check_wo_pods_troubleshoot
+  check_wo_pods_troubleshoot || :
   echo
 
   # Check all other pods in operands namespace (non wo-/milvus)
@@ -3762,7 +4131,9 @@ check_openshift_storage_pods() {
     printf "%-60s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
     awk -F"\t" '{printf "%-60s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
-    prompt_restart_bad_pods "openshift-storage" "$tmp_bad"
+    if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
+      prompt_restart_bad_pods "openshift-storage" "$tmp_bad"
+    fi
     rm -f "$tmp_list" "$tmp_bad"
     return 1
   fi
@@ -3838,7 +4209,13 @@ run_health_checks() {
 
   section "Checking Datastores"
   if [ "${CHECK_EDB:-1}"   -eq 1 ]; then edb_ok=1;   if check_edb_clusters; then edb_ok=0; fi; fi
-  if [ "${CHECK_KAFKA:-1}" -eq 1 ]; then kafka_ok=1; if check_kafka_readiness; then kafka_ok=0; fi; fi
+  if [ "${CHECK_KAFKA:-1}" -eq 1 ]; then
+    if [ "${WXO_EDITION:-unknown}" = "agentic" ]; then
+      kafka_ok=0  # Kafka is not expected for agentic edition
+    else
+      kafka_ok=1; if check_kafka_readiness; then kafka_ok=0; fi
+    fi
+  fi
   if [ "${CHECK_REDIS:-1}" -eq 1 ]; then redis_ok=1; if check_redis_cp; then redis_ok=0; fi; fi
   
   # Check Knative Eventing (unless skipped in troubleshoot mode)
