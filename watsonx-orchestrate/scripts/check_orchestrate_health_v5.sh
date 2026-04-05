@@ -1365,7 +1365,7 @@ check_wo_pods() {
     age="$(printf '%s
 ' "$line" | awk '{print $NF}')"
     [ -z "$name" ] && continue
-    case "$name" in wo-*|*milvus*) : ;; *) continue ;; esac
+    case "$name" in wo-*|tf-*|*milvus*) : ;; *) continue ;; esac
     total_wo=`expr "${total_wo:-0}" + 1`
     if [ "$status" = "Completed" ]; then continue; fi
     current=`echo "$ready" | awk -F/ '{print $1}'`
@@ -1570,8 +1570,8 @@ check_wa_operator_verification() {
   log_files=`$OC_OPS exec "$operator_pod" -- sh -c 'ls -1 *.1 *.log 2>/dev/null' 2>/dev/null` || :
   
   if [ -z "$log_files" ]; then
-    echo "  ⚠️  No log files (*.1 or *.log) found in operator pod"
-    return 1
+    echo "  ℹ️  No log files (*.1 or *.log) found in operator pod — skipping log analysis"
+    return 0
   fi
   
   echo "  📁 Found log files:"
@@ -3009,7 +3009,7 @@ list_recent_errors_all_pods() {
   
   # Get all wo- and milvus pods (excluding Completed status)
   tmp_pods=`mktemp 2>/dev/null || echo "/tmp/wo_all_pods.$$"`
-  $OCN get pods --no-headers 2>/dev/null | awk '($1 ~ /^wo-/ || $1 ~ /milvus/) && $3 != "Completed" {print $1}' > "$tmp_pods"
+  $OCN get pods --no-headers 2>/dev/null | awk '($1 ~ /^wo-/ || $1 ~ /^tf-/ || $1 ~ /milvus/) && $3 != "Completed" {print $1}' > "$tmp_pods"
   
   if [ ! -s "$tmp_pods" ]; then
     echo "No Orchestrate pods found"
@@ -3851,7 +3851,7 @@ check_wo_pods_troubleshoot() {
     restarts="$(printf '%s\n' "$line" | awk '{print $4}')"
     age="$(printf '%s\n' "$line" | awk '{print $NF}')"
     [ -z "$name" ] && continue
-    case "$name" in wo-*|*milvus*) : ;; *) continue ;; esac
+    case "$name" in wo-*|tf-*|*milvus*) : ;; *) continue ;; esac
     total_wo=`expr "${total_wo:-0}" + 1`
     if [ "$status" = "Completed" ]; then continue; fi
     current=`echo "$ready" | awk -F/ '{print $1}'`
@@ -3988,7 +3988,291 @@ check_noobaa_pods() {
   fi
 
   rm -f "$tmp_pods"
+
+  # Check NooBaa CR phase and backing store — a stuck noobaa-core causes tf- pods to fail
+  # with S3 timeout/500 errors in the model-upload init container.
+  local noobaa_phase backing_phase noobaa_needs_fix
+  noobaa_phase=$($OC get noobaa noobaa -n openshift-storage -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+  backing_phase=$($OC get backingstores noobaa-default-backing-store -n openshift-storage -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+  noobaa_needs_fix=0
+
+  if [ -n "$noobaa_phase" ] && [ "$noobaa_phase" != "Ready" ]; then
+    echo "  ⚠️  NooBaa CR phase: $noobaa_phase (expected: Ready)"
+    noobaa_needs_fix=1
+    bad_found=1
+  fi
+  if [ -n "$backing_phase" ] && [ "$backing_phase" != "Ready" ]; then
+    echo "  ⚠️  NooBaa backing store phase: $backing_phase (expected: Ready)"
+    echo "     This causes tf- (watson-assistant tensorflow) init containers to fail"
+    echo "     with S3 timeout or 500 errors in the model-upload init container."
+    noobaa_needs_fix=1
+    bad_found=1
+  fi
+
+  if [ "$noobaa_needs_fix" -eq 1 ]; then
+    echo
+    echo "  ℹ️  Fix: rolling restart noobaa-core StatefulSet (resets stale system-store state)"
+    echo "  ⚠️  WARNING: Only apply this fix on new/fresh installs where NooBaa is not yet"
+    echo "     serving production traffic. Restarting noobaa-core will cause a brief"
+    echo "     disruption to all NooBaa S3 object storage operations."
+    printf "  Apply fix now? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    local user_fix_choice=""
+    if read -r -t "${USER_INPUT_TIMEOUT:-10}" user_fix_choice 2>/dev/null; then :; else user_fix_choice="n"; fi
+    case "$user_fix_choice" in [yY]*)
+      echo "  ▶ Rolling restart noobaa-core..."
+      $OC rollout restart statefulset/noobaa-core -n openshift-storage 2>/dev/null || :
+      echo "  ⏳ Waiting for noobaa-core rollout to complete (up to 3m)..."
+      $OC rollout status statefulset/noobaa-core -n openshift-storage --timeout=180s 2>/dev/null || :
+
+      # Re-check NooBaa phase after restart
+      local retries=0
+      while [ $retries -lt 18 ]; do
+        noobaa_phase=$($OC get noobaa noobaa -n openshift-storage -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        backing_phase=$($OC get backingstores noobaa-default-backing-store -n openshift-storage -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        if [ "$noobaa_phase" = "Ready" ] && [ "$backing_phase" = "Ready" ]; then
+          echo "  ✅ NooBaa is Ready, backing store is Ready"
+          break
+        fi
+        retries=$((retries + 1))
+        echo "  ⏳ Waiting for NooBaa to become Ready (attempt $retries/18)..."
+        sleep 10
+      done
+
+      if [ "$noobaa_phase" != "Ready" ] || [ "$backing_phase" != "Ready" ]; then
+        echo "  ⚠️  NooBaa did not reach Ready state after restart (phase=$noobaa_phase, backing=$backing_phase)"
+        echo "     Manual investigation may be needed."
+      else
+        # Delete tf- pods stuck in Init:CrashLoopBackOff so they retry immediately
+        if [ -n "${PROJECT_CPD_INST_OPERANDS:-}" ]; then
+          local stuck_tf
+          stuck_tf=$($OC get pods -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null \
+            | awk '$1 ~ /^tf-/ && ($3 == "Init:CrashLoopBackOff" || $3 ~ /^Init:/) {print $1}')
+          if [ -n "$stuck_tf" ]; then
+            echo "  ▶ Deleting stuck tf- pods to force immediate retry..."
+            echo "$stuck_tf" | while read -r pod_name; do
+              $OC delete pod "$pod_name" -n "$PROJECT_CPD_INST_OPERANDS" 2>/dev/null && \
+                echo "     Deleted $pod_name" || :
+            done
+          else
+            echo "  ℹ️  No stuck tf- pods found in $PROJECT_CPD_INST_OPERANDS"
+          fi
+        fi
+      fi
+      ;;
+    esac
+  elif [ -n "$noobaa_phase" ]; then
+    echo "  ✅ NooBaa CR: $noobaa_phase, backing store: $backing_phase"
+  fi
+
   [ "$bad_found" -eq 0 ] && return 0 || return 1
+}
+
+check_and_fix_wo_postgres() {
+  echo "▶ Checking WO Postgres clusters (wo-wa-postgres, wo-watson-orchestrate-postgresedb)"
+  local OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
+
+  # Find all WO postgres CNPG cluster CRs — avoid | while pipe subshell by using a tmp file
+  local tmp_clusters
+  tmp_clusters=$(mktemp 2>/dev/null || echo "/tmp/wo_pg_clusters.$$")
+  $OCN get clusters.postgresql.k8s.enterprisedb.io --no-headers 2>/dev/null \
+    | awk '$1 ~ /^wo-wa-postgres/ || $1 ~ /^wo-watson-orchestrate-postgres/ {print $1}' \
+    > "$tmp_clusters" || :
+
+  if [ ! -s "$tmp_clusters" ]; then
+    echo "  ℹ️  No WO Postgres CNPG clusters found in $PROJECT_CPD_INST_OPERANDS"
+    rm -f "$tmp_clusters"
+    return 0
+  fi
+
+  while IFS= read -r cluster; do
+    [ -z "$cluster" ] && continue
+
+    local primary instances ready phase
+    primary=$($OCN get clusters.postgresql.k8s.enterprisedb.io "$cluster" \
+      -o jsonpath='{.status.currentPrimary}' 2>/dev/null || echo "")
+    instances=$($OCN get clusters.postgresql.k8s.enterprisedb.io "$cluster" \
+      -o jsonpath='{.status.instances}' 2>/dev/null || echo "")
+    ready=$($OCN get clusters.postgresql.k8s.enterprisedb.io "$cluster" \
+      -o jsonpath='{.status.readyInstances}' 2>/dev/null || echo "")
+    phase=$($OCN get clusters.postgresql.k8s.enterprisedb.io "$cluster" \
+      -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+
+    echo
+    echo "  Cluster: $cluster  Ready=$ready/$instances  Status=$phase  Primary=${primary:-unknown}"
+
+    # If all instances ready, nothing to do
+    if [ "$ready" = "$instances" ] && echo "$phase" | grep -qi "healthy"; then
+      echo "  ✅ All instances healthy"
+      continue
+    fi
+
+    # Check primary pod is Running
+    local primary_ok=0
+    if [ -n "$primary" ]; then
+      local primary_status
+      primary_status=$($OCN get pod "$primary" --no-headers 2>/dev/null | awk '{print $3}')
+      if [ "$primary_status" = "Running" ]; then
+        primary_ok=1
+      else
+        echo "  ❌ Primary pod $primary is not Running (status=$primary_status) — skipping auto-fix"
+      fi
+    fi
+
+    # Get instance pod names directly from CNPG cluster status (space-separated)
+    # This avoids grepping all namespace pods and picking up unrelated pods
+    local instance_names
+    instance_names=$($OCN get clusters.postgresql.k8s.enterprisedb.io "$cluster" \
+      -o jsonpath='{.status.instanceNames[*]}' 2>/dev/null || echo "")
+
+    # Fall back to pattern {cluster}-{digit} if instanceNames not populated
+    if [ -z "$instance_names" ]; then
+      instance_names=$($OCN get pods --no-headers 2>/dev/null \
+        | awk -v c="$cluster" '$1 ~ "^"c"-[0-9]+$" {print $1}' | tr '\n' ' ')
+    fi
+
+    if [ -z "$instance_names" ]; then
+      echo "  ⚠️  Could not determine instance pod names for cluster $cluster"
+      continue
+    fi
+
+    # Check each instance pod — skip primary and healthy pods, fix bad secondaries
+    # Use a tmp file to avoid another pipe subshell
+    local tmp_instances
+    tmp_instances=$(mktemp 2>/dev/null || echo "/tmp/wo_pg_inst.$$")
+    echo "$instance_names" | tr ' ' '\n' | grep -v "^$" > "$tmp_instances"
+
+    while IFS= read -r pod_name; do
+      [ -z "$pod_name" ] && continue
+      [ "$pod_name" = "$primary" ] && continue   # skip primary
+
+      local pod_status pod_ready
+      pod_status=$($OCN get pod "$pod_name" --no-headers 2>/dev/null | awk '{print $3}')
+      pod_ready=$($OCN get pod "$pod_name" --no-headers 2>/dev/null | awk '{print $2}')
+
+      # Skip if pod doesn't exist yet (CNPG may be recreating it)
+      [ -z "$pod_status" ] && continue
+      # Skip healthy pods (Running with all containers ready)
+      if [ "$pod_status" = "Running" ]; then
+        local cur tot
+        cur=$(echo "$pod_ready" | awk -F/ '{print $1}')
+        tot=$(echo "$pod_ready" | awk -F/ '{print $2}')
+        [ "$cur" = "$tot" ] && [ -n "$tot" ] && continue
+      fi
+      # Skip Completed pods — those are init/job pods, not instance pods
+      [ "$pod_status" = "Completed" ] && continue
+
+      echo "  ❌ Secondary pod $pod_name  ready=$pod_ready  status=$pod_status"
+
+      if [ "$primary_ok" -eq 0 ]; then
+        echo "     ⚠️  Skipping fix — primary is not healthy"
+        continue
+      fi
+
+      # Step 1: delete pod to trigger a restart
+      echo
+      echo "  ℹ️  Fix step 1: delete pod $pod_name to trigger a restart"
+      printf "  Apply? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+      local choice1=""
+      if read -r -t "${USER_INPUT_TIMEOUT:-20}" choice1 </dev/tty 2>/dev/null; then :; else choice1="n"; fi
+      case "$choice1" in [yY]*)
+        if ! $OCN delete pod "$pod_name" 2>/dev/null; then
+          echo "  ❌ Failed to delete pod $pod_name"
+          continue
+        fi
+        echo "  ▶ Pod $pod_name deleted, waiting up to 3m for recovery..."
+
+        local retries=0 recovered=0
+        while [ $retries -lt 18 ]; do
+          sleep 10
+          retries=$((retries + 1))
+          local new_status new_ready new_cur new_tot
+          new_status=$($OCN get pod "$pod_name" --no-headers 2>/dev/null | awk '{print $3}')
+          new_ready=$($OCN get pod "$pod_name" --no-headers 2>/dev/null | awk '{print $2}')
+          new_cur=$(echo "$new_ready" | awk -F/ '{print $1}')
+          new_tot=$(echo "$new_ready" | awk -F/ '{print $2}')
+          if [ "$new_status" = "Running" ] && [ "$new_cur" = "$new_tot" ] && [ -n "$new_tot" ]; then
+            echo "  ✅ Pod $pod_name recovered ($new_ready Running)"
+            recovered=1
+            break
+          fi
+          echo "  ⏳ $pod_name: status=$new_status ready=$new_ready (attempt $retries/18)"
+        done
+
+        [ "$recovered" -eq 1 ] && continue
+
+        # Pod did not recover in 3m — ask whether to keep waiting or move on
+        echo "  ⚠️  Pod $pod_name did not recover after 3 minutes."
+        echo
+        local keep_waiting=1
+        while [ "$keep_waiting" -eq 1 ]; do
+          printf "  Continue waiting? (y) or proceed with next check? (N) [auto-proceed in 20s]: "
+          local wait_choice=""
+          if read -r -t 20 wait_choice </dev/tty 2>/dev/null; then :; else wait_choice="n"; fi
+          case "$wait_choice" in [yY]*)
+            echo "  ⏳ Waiting another 3m for $pod_name..."
+            retries=0
+            recovered=0
+            while [ $retries -lt 18 ]; do
+              sleep 10
+              retries=$((retries + 1))
+              new_status=$($OCN get pod "$pod_name" --no-headers 2>/dev/null | awk '{print $3}')
+              new_ready=$($OCN get pod "$pod_name" --no-headers 2>/dev/null | awk '{print $2}')
+              new_cur=$(echo "$new_ready" | awk -F/ '{print $1}')
+              new_tot=$(echo "$new_ready" | awk -F/ '{print $2}')
+              if [ "$new_status" = "Running" ] && [ "$new_cur" = "$new_tot" ] && [ -n "$new_tot" ]; then
+                echo "  ✅ Pod $pod_name recovered ($new_ready Running)"
+                recovered=1
+                break
+              fi
+              echo "  ⏳ $pod_name: status=$new_status ready=$new_ready (attempt $retries/18)"
+            done
+            if [ "$recovered" -eq 1 ]; then
+              keep_waiting=0
+            else
+              echo "  ⚠️  Still not healthy."
+            fi
+            ;;
+          *)
+            keep_waiting=0
+            ;;
+          esac
+        done
+
+        [ "$recovered" -eq 1 ] && continue
+
+        # Step 2: pod did not recover — delete pod + PVC together
+        echo "  ⚠️  Pod did not recover — proceeding to next fix option."
+        echo
+        local pvc_name="$pod_name"  # CNPG PVC is named same as the pod
+        echo "  ℹ️  Fix step 2: delete pod and PVC $pvc_name so CNPG recreates the instance from scratch"
+        printf "  Apply? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+        local choice2=""
+        if read -r -t "${USER_INPUT_TIMEOUT:-20}" choice2 </dev/tty 2>/dev/null; then :; else choice2="n"; fi
+        case "$choice2" in [yY]*)
+          $OCN delete pod "$pod_name" --wait=false 2>/dev/null || :
+          if $OCN delete pvc "$pvc_name" 2>/dev/null; then
+            echo "  ▶ Pod $pod_name and PVC $pvc_name deleted — CNPG will recreate the instance"
+          else
+            echo "  ❌ Failed to delete PVC — run manually:"
+            echo "     oc delete pod $pod_name pvc $pvc_name -n $PROJECT_CPD_INST_OPERANDS"
+          fi
+          ;;
+        *)
+          echo "  ℹ️  Skipped. To fix manually:"
+          echo "     oc delete pod $pod_name pvc $pvc_name -n $PROJECT_CPD_INST_OPERANDS"
+          ;;
+        esac
+        ;;
+      *)
+        echo "  ℹ️  Skipped. To fix manually:"
+        echo "     oc delete pod $pod_name -n $PROJECT_CPD_INST_OPERANDS"
+        ;;
+      esac
+    done < "$tmp_instances"
+    rm -f "$tmp_instances"
+
+  done < "$tmp_clusters"
+  rm -f "$tmp_clusters"
 }
 
 run_troubleshoot_mode() {
@@ -4002,6 +4286,10 @@ run_troubleshoot_mode() {
 
   # Check and fix Milvus etcd issues (CrashLoopBackOff + database space)
   check_and_fix_milvus_etcd || :
+  echo
+
+  # Check and fix WO Postgres secondary pod failures
+  check_and_fix_wo_postgres || :
   echo
 
   # Check NooBaa pods in openshift-storage
