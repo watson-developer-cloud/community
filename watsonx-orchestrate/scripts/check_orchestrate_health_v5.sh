@@ -240,44 +240,52 @@ get_wo_models_info() {
   # Get all model types and models
   $OCN get wo "$wo_name" -o json 2>/dev/null | \
     awk '
-      BEGIN { in_model_config=0; model_type=""; model_name=""; indent=0 }
+      BEGIN { in_model_config=0; model_type=""; model_name=""; indent=0; replicas=""; shards="" }
       /"model_config"[[:space:]]*:/ { in_model_config=1; next }
       in_model_config {
         # Track nesting level by counting braces
         if ($0 ~ /{/) indent++
         if ($0 ~ /}/) {
+          # Flush any pending model before closing (handles missing replicas/shards)
+          if (indent == 3 && model_name != "" && model_type != "") {
+            print model_type "|" model_name "|" replicas "|" shards
+            model_name = ""; replicas = ""; shards = ""
+          }
           indent--
           if (indent <= 1) { in_model_config=0; next }
         }
         
         # Match model type (first level under model_config)
-        if (indent == 2 && $0 ~ /"[^"]+"\s*:\s*{/) {
+        if (indent == 2 && $0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{/) {
           match($0, /"([^"]+)"/, arr)
           model_type = arr[1]
         }
         
-        # Match model name (second level)
-        if (indent == 3 && $0 ~ /"[^"]+"\s*:\s*{/) {
+        # Match model name (second level) - handles both "name": {} and "name": {
+        if (indent == 3 && $0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{/) {
           match($0, /"([^"]+)"/, arr)
           model_name = arr[1]
+          replicas = ""; shards = ""
+          # If empty object on same line e.g. "name": {} — emit immediately
+          if ($0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{}/) {
+            print model_type "|" model_name "|" replicas "|" shards
+            model_name = ""
+          }
         }
         
         # Match replicas
         if (model_name != "" && $0 ~ /"replicas"/) {
-          match($0, /:\s*([0-9]+)/, arr)
+          match($0, /:[[:space:]]*([0-9]+)/, arr)
           replicas = arr[1]
         }
         
-        # Match shards
+        # Match shards — flush on seeing shards
         if (model_name != "" && $0 ~ /"shards"/) {
-          match($0, /:\s*([0-9]+)/, arr)
+          match($0, /:[[:space:]]*([0-9]+)/, arr)
           shards = arr[1]
-          # Print when we have all info
           if (model_type != "" && model_name != "") {
             print model_type "|" model_name "|" replicas "|" shards
-            model_name = ""
-            replicas = ""
-            shards = ""
+            model_name = ""; replicas = ""; shards = ""
           }
         }
       }
@@ -1065,34 +1073,43 @@ print_header() {
             tmp_models=`mktemp 2>/dev/null || echo "/tmp/wo_models.$$"`
             $OCN get wo "$wo_name" -o json 2>/dev/null | \
               awk '
-                BEGIN { in_model_config=0; model_type=""; model_name=""; indent=0 }
+                BEGIN { in_model_config=0; model_type=""; model_name=""; indent=0; replicas=""; shards="" }
                 /"model_config"[[:space:]]*:/ { in_model_config=1; next }
                 in_model_config {
                   if ($0 ~ /{/) indent++
                   if ($0 ~ /}/) {
+                    # Flush any pending model before closing (handles missing replicas/shards)
+                    if (indent == 3 && model_name != "" && model_type != "") {
+                      print model_type "|" model_name "|" replicas "|" shards
+                      model_name = ""; replicas = ""; shards = ""
+                    }
                     indent--
                     if (indent <= 1) { in_model_config=0; next }
                   }
-                  if (indent == 2 && $0 ~ /"[^"]+"\s*:\s*{/) {
+                  if (indent == 2 && $0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{/) {
                     match($0, /"([^"]+)"/, arr)
                     model_type = arr[1]
                   }
-                  if (indent == 3 && $0 ~ /"[^"]+"\s*:\s*{/) {
+                  if (indent == 3 && $0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{/) {
                     match($0, /"([^"]+)"/, arr)
                     model_name = arr[1]
+                    replicas = ""; shards = ""
+                    # If empty object on same line e.g. "name": {} — emit immediately
+                    if ($0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{}/) {
+                      print model_type "|" model_name "|" replicas "|" shards
+                      model_name = ""
+                    }
                   }
                   if (model_name != "" && $0 ~ /"replicas"/) {
-                    match($0, /:\s*([0-9]+)/, arr)
+                    match($0, /:[[:space:]]*([0-9]+)/, arr)
                     replicas = arr[1]
                   }
                   if (model_name != "" && $0 ~ /"shards"/) {
-                    match($0, /:\s*([0-9]+)/, arr)
+                    match($0, /:[[:space:]]*([0-9]+)/, arr)
                     shards = arr[1]
                     if (model_type != "" && model_name != "") {
                       print model_type "|" model_name "|" replicas "|" shards
-                      model_name = ""
-                      replicas = ""
-                      shards = ""
+                      model_name = ""; replicas = ""; shards = ""
                     }
                   }
                 }
