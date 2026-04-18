@@ -235,61 +235,12 @@ get_wo_models_info() {
   
   # Parse the nested model_config structure
   # Structure is: model_config -> model_type -> model_name -> {replicas, shards}
-  tmp_models=`mktemp 2>/dev/null || echo "/tmp/wo_models.$$"`
+  tmp_models=`mktemp 2>/dev/null || echo "/tmp/wo_models.$"`
   
-  # Get all model types and models
+  # Get all model types and models using jq
   $OCN get wo "$wo_name" -o json 2>/dev/null | \
-    awk '
-      BEGIN { in_model_config=0; model_type=""; model_name=""; indent=0; replicas=""; shards="" }
-      /"model_config"[[:space:]]*:/ { in_model_config=1; next }
-      in_model_config {
-        # Track nesting level by counting braces
-        if ($0 ~ /{/) indent++
-        if ($0 ~ /}/) {
-          # Flush any pending model before closing (handles missing replicas/shards)
-          if (indent == 3 && model_name != "" && model_type != "") {
-            print model_type "|" model_name "|" replicas "|" shards
-            model_name = ""; replicas = ""; shards = ""
-          }
-          indent--
-          if (indent <= 1) { in_model_config=0; next }
-        }
-        
-        # Match model type (first level under model_config)
-        if (indent == 2 && $0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{/) {
-          match($0, /"([^"]+)"/, arr)
-          model_type = arr[1]
-        }
-        
-        # Match model name (second level) - handles both "name": {} and "name": {
-        if (indent == 3 && $0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{/) {
-          match($0, /"([^"]+)"/, arr)
-          model_name = arr[1]
-          replicas = ""; shards = ""
-          # If empty object on same line e.g. "name": {} — emit immediately
-          if ($0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{}/) {
-            print model_type "|" model_name "|" replicas "|" shards
-            model_name = ""
-          }
-        }
-        
-        # Match replicas
-        if (model_name != "" && $0 ~ /"replicas"/) {
-          match($0, /:[[:space:]]*([0-9]+)/, arr)
-          replicas = arr[1]
-        }
-        
-        # Match shards — flush on seeing shards
-        if (model_name != "" && $0 ~ /"shards"/) {
-          match($0, /:[[:space:]]*([0-9]+)/, arr)
-          shards = arr[1]
-          if (model_type != "" && model_name != "") {
-            print model_type "|" model_name "|" replicas "|" shards
-            model_name = ""; replicas = ""; shards = ""
-          }
-        }
-      }
-    ' > "$tmp_models" 2>/dev/null || :
+    jq -r '.spec.wxolite.ifm.model_config // {} | to_entries[] | .key as $mtype | .value | to_entries[] | [$mtype, .key, (.value.replicas // "default" | tostring), (.value.shards // "default" | tostring)] | join("|")' \
+    > "$tmp_models" 2>/dev/null || :
   
   if [ -s "$tmp_models" ]; then
     while IFS='|' read -r mtype mname replicas shards; do
@@ -1070,50 +1021,10 @@ print_header() {
           models_json=`$OCN get wo "$wo_name" -o jsonpath='{.spec.wxolite.ifm.model_config}' 2>/dev/null || :`
           if [ -n "$models_json" ] && [ "$models_json" != "{}" ] && [ "$models_json" != "null" ]; then
             print_box_line "  Models configured:"
-            tmp_models=`mktemp 2>/dev/null || echo "/tmp/wo_models.$$"`
+            tmp_models=`mktemp 2>/dev/null || echo "/tmp/wo_models.$"`
             $OCN get wo "$wo_name" -o json 2>/dev/null | \
-              awk '
-                BEGIN { in_model_config=0; model_type=""; model_name=""; indent=0; replicas=""; shards="" }
-                /"model_config"[[:space:]]*:/ { in_model_config=1; next }
-                in_model_config {
-                  if ($0 ~ /{/) indent++
-                  if ($0 ~ /}/) {
-                    # Flush any pending model before closing (handles missing replicas/shards)
-                    if (indent == 3 && model_name != "" && model_type != "") {
-                      print model_type "|" model_name "|" replicas "|" shards
-                      model_name = ""; replicas = ""; shards = ""
-                    }
-                    indent--
-                    if (indent <= 1) { in_model_config=0; next }
-                  }
-                  if (indent == 2 && $0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{/) {
-                    match($0, /"([^"]+)"/, arr)
-                    model_type = arr[1]
-                  }
-                  if (indent == 3 && $0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{/) {
-                    match($0, /"([^"]+)"/, arr)
-                    model_name = arr[1]
-                    replicas = ""; shards = ""
-                    # If empty object on same line e.g. "name": {} — emit immediately
-                    if ($0 ~ /"[^"]+"[[:space:]]*:[[:space:]]*{}/) {
-                      print model_type "|" model_name "|" replicas "|" shards
-                      model_name = ""
-                    }
-                  }
-                  if (model_name != "" && $0 ~ /"replicas"/) {
-                    match($0, /:[[:space:]]*([0-9]+)/, arr)
-                    replicas = arr[1]
-                  }
-                  if (model_name != "" && $0 ~ /"shards"/) {
-                    match($0, /:[[:space:]]*([0-9]+)/, arr)
-                    shards = arr[1]
-                    if (model_type != "" && model_name != "") {
-                      print model_type "|" model_name "|" replicas "|" shards
-                      model_name = ""; replicas = ""; shards = ""
-                    }
-                  }
-                }
-              ' > "$tmp_models" 2>/dev/null || :
+              jq -r '.spec.wxolite.ifm.model_config // {} | to_entries[] | .key as $mtype | .value | to_entries[] | [$mtype, .key, (.value.replicas // "default" | tostring), (.value.shards // "default" | tostring)] | join("|")' \
+              > "$tmp_models" 2>/dev/null || :
             
             if [ -s "$tmp_models" ]; then
               while IFS='|' read -r mtype mname replicas shards; do
