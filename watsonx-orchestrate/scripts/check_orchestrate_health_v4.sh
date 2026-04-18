@@ -55,6 +55,7 @@
 #
 #  Options:
 #    --troubleshoot              Enable troubleshoot mode with interactive remediation
+#    -c, --config                Enable configuration mode to modify WO CR settings
 #    -n, --namespace NAMESPACE   Override operands namespace
 #    --assume-agentic            Assume agentic edition
 #    --assume-agentic-skills     Assume agentic_skills_assistant edition
@@ -91,11 +92,13 @@ ASSUME_EDITION=""
 
 # Troubleshoot mode - disabled by default
 : "${TROUBLESHOOT_MODE:=0}"
+# Configuration mode - disabled by default
+: "${CONFIG_MODE:=0}"
 # Skip troubleshoot warning prompt - disabled by default
 : "${SKIP_WARNING:=0}"
 # Debug mode - disabled by default
 : "${DEBUG_MODE:=0}"
-: "${USER_INPUT_TIMEOUT:=10}"  # Timeout in seconds for user input prompts
+: "${USER_INPUT_TIMEOUT:=20}"  # Timeout in seconds for user input prompts
 
 # Log noise patterns to exclude from error output (one grep -v per pattern)
 # These are known harmless messages that match error keywords but are not actionable
@@ -127,6 +130,7 @@ while [ $# -gt 0 ]; do
     --assume-agentic)  ASSUME_EDITION="agentic"; shift 1 ;;
     --assume-agentic-skills)  ASSUME_EDITION="agentic_skills_assistant"; shift 1 ;;
     -t|--troubleshoot) TROUBLESHOOT_MODE=1; shift 1 ;;
+    -c|--config) CONFIG_MODE=1; shift 1 ;;
     -y|--yes) SKIP_WARNING=1; shift 1 ;;
     -d|--debug) DEBUG_MODE=1; shift 1 ;;
     -h|--help) sed -n '1,220p' "$0"; exit 0 ;;
@@ -262,6 +266,401 @@ get_wo_models_info() {
   
   rm -f "$tmp_models"
 }
+
+# ==================== Configuration Mode Functions ====================
+
+# Function to display current WO CR configuration
+show_current_config() {
+  local wo_name="$1"
+  local ns="$2"
+  
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                    Current WO CR Configuration                               ║"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+  echo ""
+  
+  # Get size
+  local size=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.size}' 2>/dev/null || echo "medium")
+  echo "  1. Size: ${size:-medium}"
+  
+  # Get HPA status
+  local hpa=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.autoScaleConfig}' 2>/dev/null || echo "false")
+  echo "  2. HPA (autoScaleConfig): $hpa"
+  
+  # Get DocProc status
+  local docproc=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.docproc.enabled}' 2>/dev/null || echo "not set")
+  echo "  3. DocProc Enabled: $docproc"
+  
+  # Get image digest overrides
+  echo "  4. Image Digest Overrides:"
+  local digests=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.image.digestOverrides}' 2>/dev/null)
+  if [ -z "$digests" ] || [ "$digests" = "{}" ] || [ "$digests" = "null" ]; then
+    echo "     None configured"
+  else
+    $OC -n "$ns" get wo "$wo_name" -o json 2>/dev/null | \
+      jq -r '.spec.image.digestOverrides // {} | to_entries[] | "     - \(.key): \(.value)"' 2>/dev/null || echo "     (Unable to parse)"
+  fi
+  
+  # Get sizeMapping (component-specific replicas and resources)
+  echo "  5. Component Size Mappings (sizeMapping):"
+  local sizemapping=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.sizeMapping}' 2>/dev/null)
+  if [ -z "$sizemapping" ] || [ "$sizemapping" = "{}" ] || [ "$sizemapping" = "null" ]; then
+    echo "     None configured (using defaults from size)"
+  else
+    $OC -n "$ns" get wo "$wo_name" -o json 2>/dev/null | \
+      jq -r '.spec.sizeMapping // {} | to_entries[] | "     - \(.key):\n       replicas: \(.value.replicas // "not set")\n       resources: \(if .value.resources then "configured" else "not set" end)"' 2>/dev/null || echo "     (Unable to parse)"
+  fi
+  
+  echo ""
+}
+
+# Function to modify size
+modify_size() {
+  local wo_name="$1"
+  local ns="$2"
+  
+  echo ""
+  echo "Available sizes: starter, small_mincpureq, small, medium, large"
+  echo -n "Enter new size (or 'cancel' to skip): "
+  read -r new_size
+  
+  if [ "$new_size" = "cancel" ] || [ -z "$new_size" ]; then
+    echo "Skipped."
+    return
+  fi
+  
+  case "$new_size" in
+    starter|small_mincpureq|small|medium|large)
+      echo "Updating size to: $new_size"
+      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"size\":\"$new_size\"}}"
+      echo "✓ Size updated successfully"
+      ;;
+    *)
+      echo "❌ Invalid size. Must be one of: starter, small_mincpureq, small, medium, large"
+      ;;
+  esac
+}
+
+# Function to toggle HPA
+modify_hpa() {
+  local wo_name="$1"
+  local ns="$2"
+  
+  local current=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.autoScaleConfig}' 2>/dev/null || echo "false")
+  
+  echo ""
+  echo "Current HPA (autoScaleConfig): $current"
+  echo -n "Enable HPA? (true/false or 'cancel' to skip): "
+  read -r new_hpa
+  
+  if [ "$new_hpa" = "cancel" ] || [ -z "$new_hpa" ]; then
+    echo "Skipped."
+    return
+  fi
+  
+  case "$new_hpa" in
+    true|false)
+      echo "Updating HPA to: $new_hpa"
+      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"autoScaleConfig\":$new_hpa}}"
+      echo "✓ HPA updated successfully"
+      ;;
+    *)
+      echo "❌ Invalid value. Must be 'true' or 'false'"
+      ;;
+  esac
+}
+
+# Function to toggle DocProc
+modify_docproc() {
+  local wo_name="$1"
+  local ns="$2"
+  
+  local current=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.docproc.enabled}' 2>/dev/null || echo "not set")
+  
+  echo ""
+  echo "Current DocProc enabled: $current"
+  echo -n "Enable DocProc? (true/false or 'cancel' to skip): "
+  read -r new_docproc
+  
+  if [ "$new_docproc" = "cancel" ] || [ -z "$new_docproc" ]; then
+    echo "Skipped."
+    return
+  fi
+  
+  case "$new_docproc" in
+    true|false)
+      echo "Updating DocProc to: $new_docproc"
+      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"docproc\":{\"enabled\":$new_docproc}}}"
+      echo "✓ DocProc updated successfully"
+      ;;
+    *)
+      echo "❌ Invalid value. Must be 'true' or 'false'"
+      ;;
+  esac
+}
+
+# Function to add/modify image digest
+modify_image_digest() {
+  local wo_name="$1"
+  local ns="$2"
+  
+  echo ""
+  echo "Image Digest Override Management"
+  echo "--------------------------------"
+  echo "1. Add/Update digest override"
+  echo "2. Remove digest override"
+  echo "3. Cancel"
+  echo -n "Select option (1-3): "
+  read -r digest_option
+  
+  case "$digest_option" in
+    1)
+      echo -n "Enter image name (e.g., wo-ui): "
+      read -r image_name
+      if [ -z "$image_name" ]; then
+        echo "❌ Image name cannot be empty"
+        return
+      fi
+      
+      echo -n "Enter digest (e.g., sha256:abc123...): "
+      read -r digest_value
+      if [ -z "$digest_value" ]; then
+        echo "❌ Digest cannot be empty"
+        return
+      fi
+      
+      echo "Adding/Updating digest override for $image_name"
+      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"image\":{\"digestOverrides\":{\"$image_name\":\"$digest_value\"}}}}"
+      echo "✓ Digest override updated successfully"
+      ;;
+    2)
+      echo -n "Enter image name to remove: "
+      read -r image_name
+      if [ -z "$image_name" ]; then
+        echo "❌ Image name cannot be empty"
+        return
+      fi
+      
+      echo "Removing digest override for $image_name"
+      $OC -n "$ns" patch wo "$wo_name" --type=json -p "[{\"op\":\"remove\",\"path\": \"/spec/image/digestOverrides/$image_name\"}]" 2>/dev/null
+      echo "✓ Digest override removed (if it existed)"
+      ;;
+    3|*)
+      echo "Cancelled."
+      ;;
+  esac
+}
+
+# Function to modify component replicas and resources
+modify_component_sizing() {
+  local wo_name="$1"
+  local ns="$2"
+  
+  echo ""
+  echo "Component Sizing (sizeMapping) Management"
+  echo "----------------------------------------"
+  echo "This allows you to override replicas and resources for specific components."
+  echo ""
+  echo -n "Enter component name (e.g., wo-ui, wo-api, or 'cancel' to skip): "
+  read -r component_name
+  
+  if [ "$component_name" = "cancel" ] || [ -z "$component_name" ]; then
+    echo "Skipped."
+    return
+  fi
+  
+  echo ""
+  echo "What would you like to modify for $component_name?"
+  echo "1. Replicas"
+  echo "2. Resources (CPU/Memory)"
+  echo "3. Both"
+  echo "4. Remove component override"
+  echo "5. Cancel"
+  echo -n "Select option (1-5): "
+  read -r sizing_option
+  
+  case "$sizing_option" in
+    1)
+      echo -n "Enter number of replicas: "
+      read -r replicas
+      if [ -z "$replicas" ] || ! [ "$replicas" -eq "$replicas" ] 2>/dev/null; then
+        echo "❌ Invalid replicas value"
+        return
+      fi
+      
+      echo "Updating replicas for $component_name to $replicas"
+      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"sizeMapping\":{\"$component_name\":{\"replicas\":$replicas}}}}"
+      echo "✓ Replicas updated successfully"
+      ;;
+    2)
+      echo ""
+      echo "Resource configuration (leave empty to skip):"
+      echo -n "CPU request (e.g., 100m, 1): "
+      read -r cpu_req
+      echo -n "CPU limit (e.g., 500m, 2): "
+      read -r cpu_lim
+      echo -n "Memory request (e.g., 256Mi, 1Gi): "
+      read -r mem_req
+      echo -n "Memory limit (e.g., 512Mi, 2Gi): "
+      read -r mem_lim
+      
+      # Build resources JSON
+      local resources_json="{"
+      local has_requests=false
+      local has_limits=false
+      
+      if [ -n "$cpu_req" ] || [ -n "$mem_req" ]; then
+        has_requests=true
+        resources_json="$resources_json\"requests\":{"
+        [ -n "$cpu_req" ] && resources_json="$resources_json\"cpu\":\"$cpu_req\","
+        [ -n "$mem_req" ] && resources_json="$resources_json\"memory\":\"$mem_req\","
+        resources_json="${resources_json%,}}"
+      fi
+      
+      if [ -n "$cpu_lim" ] || [ -n "$mem_lim" ]; then
+        has_limits=true
+        [ "$has_requests" = true ] && resources_json="$resources_json,"
+        resources_json="$resources_json\"limits\":{"
+        [ -n "$cpu_lim" ] && resources_json="$resources_json\"cpu\":\"$cpu_lim\","
+        [ -n "$mem_lim" ] && resources_json="$resources_json\"memory\":\"$mem_lim\","
+        resources_json="${resources_json%,}}"
+      fi
+      
+      resources_json="$resources_json}"
+      
+      if [ "$has_requests" = false ] && [ "$has_limits" = false ]; then
+        echo "❌ No resources specified"
+        return
+      fi
+      
+      echo "Updating resources for $component_name"
+      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"sizeMapping\":{\"$component_name\":{\"resources\":$resources_json}}}}"
+      echo "✓ Resources updated successfully"
+      ;;
+    3)
+      echo -n "Enter number of replicas: "
+      read -r replicas
+      if [ -z "$replicas" ] || ! [ "$replicas" -eq "$replicas" ] 2>/dev/null; then
+        echo "❌ Invalid replicas value"
+        return
+      fi
+      
+      echo ""
+      echo "Resource configuration (leave empty to skip):"
+      echo -n "CPU request (e.g., 100m, 1): "
+      read -r cpu_req
+      echo -n "CPU limit (e.g., 500m, 2): "
+      read -r cpu_lim
+      echo -n "Memory request (e.g., 256Mi, 1Gi): "
+      read -r mem_req
+      echo -n "Memory limit (e.g., 512Mi, 2Gi): "
+      read -r mem_lim
+      
+      # Build resources JSON
+      local resources_json="{"
+      local has_requests=false
+      local has_limits=false
+      
+      if [ -n "$cpu_req" ] || [ -n "$mem_req" ]; then
+        has_requests=true
+        resources_json="$resources_json\"requests\":{"
+        [ -n "$cpu_req" ] && resources_json="$resources_json\"cpu\":\"$cpu_req\","
+        [ -n "$mem_req" ] && resources_json="$resources_json\"memory\":\"$mem_req\","
+        resources_json="${resources_json%,}}"
+      fi
+      
+      if [ -n "$cpu_lim" ] || [ -n "$mem_lim" ]; then
+        has_limits=true
+        [ "$has_requests" = true ] && resources_json="$resources_json,"
+        resources_json="$resources_json\"limits\":{"
+        [ -n "$cpu_lim" ] && resources_json="$resources_json\"cpu\":\"$cpu_lim\","
+        [ -n "$mem_lim" ] && resources_json="$resources_json\"memory\":\"$mem_lim\","
+        resources_json="${resources_json%,}}"
+      fi
+      
+      resources_json="$resources_json}"
+      
+      echo "Updating replicas and resources for $component_name"
+      $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"sizeMapping\":{\"$component_name\":{\"replicas\":$replicas,\"resources\":$resources_json}}}}"
+      echo "✓ Replicas and resources updated successfully"
+      ;;
+    4)
+      echo "Removing size mapping override for $component_name"
+      $OC -n "$ns" patch wo "$wo_name" --type=json -p "[{\"op\":\"remove\",\"path\":\"/spec/sizeMapping/$component_name\"}]" 2>/dev/null
+      echo "✓ Component override removed (if it existed)"
+      ;;
+    5|*)
+      echo "Cancelled."
+      ;;
+  esac
+}
+
+# Main configuration mode function
+run_configuration_mode() {
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                         CONFIGURATION MODE                                   ║"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+  echo "║                                                                              ║"
+  echo "║  This mode allows you to view and modify WatsonxOrchestrate CR settings.    ║"
+  echo "║  Changes are applied immediately to the cluster.                             ║"
+  echo "║                                                                              ║"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+  echo ""
+  
+  # Get WO CR name
+  local wo_name=$($OC -n "$PROJECT_CPD_INST_OPERANDS" get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}')
+  
+  if [ -z "$wo_name" ]; then
+    echo "❌ Error: No WatsonxOrchestrate CR found in namespace $PROJECT_CPD_INST_OPERANDS"
+    exit 1
+  fi
+  
+  echo "Found WO CR: $wo_name in namespace: $PROJECT_CPD_INST_OPERANDS"
+  
+  while true; do
+    show_current_config "$wo_name" "$PROJECT_CPD_INST_OPERANDS"
+    
+    echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                         Configuration Options                                ║"
+    echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "  1. Modify Size (T-shirt sizing)"
+    echo "  2. Toggle HPA (Horizontal Pod Autoscaling)"
+    echo "  3. Toggle DocProc"
+    echo "  4. Add/Modify/Remove Image Digest Override"
+    echo "  5. Modify Component Replicas and Resources (sizeMapping)"
+    echo "  6. Refresh current configuration"
+    echo "  7. Exit configuration mode"
+    echo ""
+    echo -n "Select option (1-7): "
+    read -r config_choice
+    
+    case "$config_choice" in
+      1) modify_size "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      2) modify_hpa "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      3) modify_docproc "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      4) modify_image_digest "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      5) modify_component_sizing "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      6) echo "Refreshing..." ;;
+      7)
+        echo ""
+        echo "Exiting configuration mode..."
+        exit 0
+        ;;
+      *)
+        echo "❌ Invalid option. Please select 1-7."
+        ;;
+    esac
+    
+    echo ""
+    echo "Press Enter to continue..."
+    read -r
+  done
+}
+
+# ==================== End Configuration Mode Functions ====================
 
 print_header() {
   echo ""
@@ -2433,6 +2832,12 @@ resolve_namespaces
 detect_wxo_edition
 
 trap 'echo; echo "Interrupted. Exiting."; exit 1' INT TERM
+
+# Run configuration mode if enabled (exits after completion)
+if [ "${CONFIG_MODE:-0}" -eq 1 ]; then
+  run_configuration_mode
+  # Configuration mode exits within the function, so this line is never reached
+fi
 
 # Show troubleshoot warning BEFORE header (if troubleshoot mode is enabled)
 if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ "${SKIP_WARNING:-0}" -eq 0 ]; then
