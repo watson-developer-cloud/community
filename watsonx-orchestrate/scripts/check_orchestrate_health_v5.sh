@@ -52,16 +52,17 @@
 #    * Exits 1 if max tries exhausted without passing all checks
 #
 # USAGE:
-#  ./check_orchestrate_health_v4.sh [OPTIONS]
+#  ./check_orchestrate_health_v5.sh [OPTIONS]
 #
 #  Options:
-#    --troubleshoot              Enable troubleshoot mode with interactive remediation
-#    -c, --config                Enable configuration mode to modify WO CR settings
-#    -n, --namespace NAMESPACE   Override operands namespace
-#    --assume-agentic            Assume agentic edition
-#    --assume-agentic-skills     Assume agentic_skills_assistant edition
-#    -y, --yes                   Bypass troubleshoot mode warning prompt
-#    -h, --help                  Show help message
+#    -t, --troubleshoot                     Enable troubleshoot mode with interactive remediation
+#    -c, --config                           Enable configuration mode to modify WO CR settings
+#    -n, --namespace NAMESPACE              Override operands namespace
+#        --assume-agentic                   Assume agentic edition
+#        --assume-agentic-skills-assistant  Assume agentic_skills_assistant edition
+#    -y, --yes                              Bypass troubleshoot mode warning prompt
+#    -d, --debug                            Enable debug mode
+#    -h, --help                             Show help message
 
 set -eu
 
@@ -131,12 +132,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -n|--namespace) OVERRIDE_NS="$2"; shift 2 ;;
     --assume-agentic)  ASSUME_EDITION="agentic"; shift 1 ;;
-    --assume-agentic-skills)  ASSUME_EDITION="agentic_skills_assistant"; shift 1 ;;
+    --assume-agentic-skills-assistant)  ASSUME_EDITION="agentic_skills_assistant"; shift 1 ;;
     -t|--troubleshoot) TROUBLESHOOT_MODE=1; shift 1 ;;
     -c|--config) CONFIG_MODE=1; shift 1 ;;
     -y|--yes) SKIP_WARNING=1; shift 1 ;;
     -d|--debug) DEBUG_MODE=1; shift 1 ;;
-    -h|--help) sed -n '1,220p' "$0"; exit 0 ;;
+    -h|--help) sed -n "1,$(awk '/^[^#]/{print NR-1; exit}' "$0")p" "$0"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
