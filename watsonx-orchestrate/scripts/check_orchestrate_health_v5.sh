@@ -1467,7 +1467,15 @@ check_wa_operator_verification() {
   
   # Check waall resources first
   check_waall_resources
-  
+
+  # If all waall resources are healthy, no need to dig into operator logs
+  waall_all_ok=`$OC -n $PROJECT_CPD_INST_OPERANDS get waall --no-headers 2>/dev/null | awk '$3!="True" || $4!="Stable"{found=1} END{print (found ? "no" : "yes")}'`
+  if [ "$waall_all_ok" = "yes" ]; then
+    echo ""
+    echo "  ✅ All waall resources are stable — skipping operator log analysis"
+    return 0
+  fi
+
   # Check if assistant operator is running
   OC_OPS="$OC -n ${PROJECT_CPD_INST_OPERATORS:-cpd-operators}"
   
@@ -1992,6 +2000,7 @@ check_requested_operator() {
 
   checked_requested_operators=1
   ready=$($OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+  ready="${ready:-0}"
   desired=$($OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
 
   if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
