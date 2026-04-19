@@ -247,7 +247,7 @@ get_wo_models_info() {
       [ -z "$mname" ] && continue
       replica_info="${replicas:-default}"
       shard_info="${shards:-default}"
-      echo "      - ${mtype}/${mname}: replicas=${replica_info}, shards=${shard_info}"
+      echo "      - ${mtype}/${mname}"
     done < "$tmp_models"
   else
     echo "      (Unable to parse model configuration)"
@@ -1031,7 +1031,7 @@ print_header() {
                 [ -z "$mname" ] && continue
                 replica_info="${replicas:-default}"
                 shard_info="${shards:-default}"
-                model_line="• ${mtype}/${mname} (r=${replica_info}, s=${shard_info})"
+                model_line="• ${mtype}/${mname}"
                 print_box_line "    $model_line"
               done < "$tmp_models"
             fi
