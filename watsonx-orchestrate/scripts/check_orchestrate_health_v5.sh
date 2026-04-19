@@ -2052,7 +2052,7 @@ check_orchestrate_operators() {
   if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ -n "$scaled_down_operators" ]; then
     echo
     echo "⚠️  Scaled down operators detected: $scaled_down_operators"
-    printf "Would you like to scale up these operators to 1 replica? (y/N) [default: n, auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+    printf "Would you like to scale up these operators to 1 replica? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
     
     # Read with timeout
     if read -t $USER_INPUT_TIMEOUT scale_response </dev/tty 2>/dev/null; then
