@@ -151,14 +151,14 @@ print_rule() { echo "-----------------------------------------------------------
 BOX_INNER_WIDTH=76
 
 print_box_blank() {
-  printf "â %-${BOX_INNER_WIDTH}s â\n" ""
+  printf "║ %-${BOX_INNER_WIDTH}s ║\n" ""
 }
 
 sanitize_box_text() {
   printf '%s' "$1" | sed \
-    -e 's/â¢/-/g' \
-    -e 's/â ï¸/WARNING/g' \
-    -e 's/â /WARNING/g'
+    -e 's/•/-/g' \
+    -e 's/⚠️/WARNING/g' \
+    -e 's/⚠/WARNING/g'
 }
 
 print_box_line() {
@@ -170,7 +170,7 @@ print_box_line() {
   fi
 
   printf '%s\n' "$box_text" | fold -s -w "$BOX_INNER_WIDTH" | while IFS= read -r box_line; do
-    printf "â %-${BOX_INNER_WIDTH}s â\n" "$box_line"
+    printf "║ %-${BOX_INNER_WIDTH}s ║\n" "$box_line"
   done
 }
 
@@ -264,9 +264,9 @@ show_current_config() {
   local ns="$2"
   
   echo ""
-  echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
-  echo "â                    Current WO CR Configuration                               â"
-  echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                    Current WO CR Configuration                               ║"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
   
   # Get size
@@ -346,18 +346,18 @@ modify_size() {
     4) new_size="medium" ;;
     5) new_size="large" ;;
     cancel|"") echo "Skipped."; return ;;
-    *) echo "â Invalid choice. Please enter a number 1-5."; return ;;
+    *) echo "❌ Invalid choice. Please enter a number 1-5."; return ;;
   esac
   
   # Check if already set to the desired value
   if [ "$new_size" = "$current_size" ]; then
-    echo "â¹ï¸  Size is already set to: $new_size. No changes needed."
+    echo "ℹ️  Size is already set to: $new_size. No changes needed."
   elif [ -z "$current_size" ] && [ "$new_size" = "medium" ]; then
-    echo "â¹ï¸  Size is already medium (default). No changes needed."
+    echo "ℹ️  Size is already medium (default). No changes needed."
   else
     echo "Updating size to: $new_size"
     $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"size\":\"$new_size\"}}"
-    echo "â Size updated successfully"
+    echo "✓ Size updated successfully"
   fi
 }
 
@@ -384,18 +384,18 @@ modify_hpa() {
     1) new_hpa="true" ;;
     2) new_hpa="false" ;;
     cancel|"") echo "Skipped."; return ;;
-    *) echo "â Invalid choice. Please enter 1 or 2."; return ;;
+    *) echo "❌ Invalid choice. Please enter 1 or 2."; return ;;
   esac
   
   # Check if already set to the desired value
   if [ "$new_hpa" = "$current" ]; then
-    echo "â¹ï¸  HPA is already set to: $new_hpa. No changes needed."
+    echo "ℹ️  HPA is already set to: $new_hpa. No changes needed."
   elif [ -z "$current" ] && [ "$new_hpa" = "false" ]; then
-    echo "â¹ï¸  HPA is already disabled (default). No changes needed."
+    echo "ℹ️  HPA is already disabled (default). No changes needed."
   else
     echo "Updating HPA to: $new_hpa"
     $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"autoScaleConfig\":$new_hpa}}"
-    echo "â HPA updated successfully"
+    echo "✓ HPA updated successfully"
   fi
 }
 
@@ -417,12 +417,12 @@ modify_docproc() {
     1) new_docproc="true" ;;
     2) new_docproc="false" ;;
     cancel|"") echo "Skipped."; return ;;
-    *) echo "â Invalid choice. Please enter 1 or 2."; return ;;
+    *) echo "❌ Invalid choice. Please enter 1 or 2."; return ;;
   esac
   
   echo "Updating DocProc to: $new_docproc"
   $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"docproc\":{\"enabled\":$new_docproc}}}"
-  echo "â DocProc updated successfully"
+  echo "✓ DocProc updated successfully"
 }
 
 # Function to add/modify image digest
@@ -480,7 +480,7 @@ modify_image_digest() {
       printf "Enter image name (e.g., wo-ui): "
       read -r image_name
       if [ -z "$image_name" ]; then
-        echo "â Image name cannot be empty"
+        echo "❌ Image name cannot be empty"
         rm -f "$tmp_digests"
         return
       fi
@@ -498,7 +498,7 @@ modify_image_digest() {
       printf "Enter new digest (sha256:...): "
       read -r digest_value
       if [ -z "$digest_value" ]; then
-        echo "â Digest cannot be empty"
+        echo "❌ Digest cannot be empty"
         rm -f "$tmp_digests"
         return
       fi
@@ -506,13 +506,13 @@ modify_image_digest() {
       echo "Updating digest override for $image_name..."
       $OC -n "$ns" patch wo "$wo_name" --type=merge \
         -p "{\"spec\":{\"image\":{\"digestOverrides\":{\"$image_name\":\"$digest_value\"}}}}"
-      echo "â Digest override updated successfully"
+      echo "✓ Digest override updated successfully"
       ;;
     2)
       echo ""
       # Build remove menu from existing overrides
       if [ ! -s "$tmp_digests" ]; then
-        echo "â¹ï¸  No digest overrides are currently configured."
+        echo "ℹ️  No digest overrides are currently configured."
         rm -f "$tmp_digests"
         return
       fi
@@ -527,14 +527,14 @@ modify_image_digest() {
       local remove_name
       remove_name=$(awk -F'|' -v n="$remove_choice" '$1==n{print $2}' "$tmp_digests")
       if [ -z "$remove_name" ]; then
-        echo "â Invalid selection."
+        echo "❌ Invalid selection."
         rm -f "$tmp_digests"
         return
       fi
       echo "Removing digest override for $remove_name..."
       $OC -n "$ns" patch wo "$wo_name" --type=json \
         -p "[{\"op\":\"remove\",\"path\":\"/spec/image/digestOverrides/$remove_name\"}]" 2>/dev/null
-      echo "â Digest override removed"
+      echo "✓ Digest override removed"
       ;;
     3|*)
       echo "Cancelled."
@@ -618,7 +618,7 @@ modify_component_sizing() {
       _list_wo_components "$ns" > "$tmp_comps"
 
       if [ ! -s "$tmp_comps" ]; then
-        echo "â No wo-* components found in namespace $ns"
+        echo "❌ No wo-* components found in namespace $ns"
         rm -f "$tmp_comps"
         return
       fi
@@ -652,7 +652,7 @@ modify_component_sizing() {
       rm -f "$tmp_comps"
 
       if [ -z "$selected_name" ]; then
-        echo "â Invalid selection."
+        echo "❌ Invalid selection."
         return
       fi
 
@@ -669,14 +669,14 @@ modify_component_sizing() {
       [ "$new_replicas" = "cancel" ] || [ -z "$new_replicas" ] && { echo "Skipped."; return; }
 
       if ! [ "$new_replicas" -eq "$new_replicas" ] 2>/dev/null; then
-        echo "â Invalid number."
+        echo "❌ Invalid number."
         return
       fi
 
       echo "Updating replicas for $sm_key_1 to $new_replicas..."
       $OC -n "$ns" patch wo "$wo_name" --type=merge \
         -p "{\"spec\":{\"sizeMapping\":{\"$sm_key_1\":{\"replicas\":$new_replicas}}}}"
-      echo "â Replicas updated successfully"
+      echo "✓ Replicas updated successfully"
       ;;
 
     2)
@@ -688,7 +688,7 @@ modify_component_sizing() {
       _list_wo_components "$ns" > "$tmp_comps2"
 
       if [ ! -s "$tmp_comps2" ]; then
-        echo "â No wo-* components found in namespace $ns"
+        echo "❌ No wo-* components found in namespace $ns"
         rm -f "$tmp_comps2"
         return
       fi
@@ -713,7 +713,7 @@ modify_component_sizing() {
       rm -f "$tmp_comps2"
 
       if [ -z "$selected_name2" ]; then
-        echo "â Invalid selection."
+        echo "❌ Invalid selection."
         return
       fi
 
@@ -798,14 +798,14 @@ modify_component_sizing() {
       resources_json="${resources_json}}"
 
       if [ "$has_requests" = false ] && [ "$has_limits" = false ]; then
-        echo "â No resource values specified."
+        echo "❌ No resource values specified."
         return
       fi
 
       echo "Updating resources for $sm_key_2..."
       $OC -n "$ns" patch wo "$wo_name" --type=merge \
         -p "{\"spec\":{\"sizeMapping\":{\"$sm_key_2\":{\"resources\":$resources_json}}}}"
-      echo "â Resources updated successfully"
+      echo "✓ Resources updated successfully"
       ;;
 
     3)
@@ -842,7 +842,7 @@ modify_component_sizing() {
       rm -f "$tmp_comps3"
 
       if [ -z "$selected_name3" ]; then
-        echo "â Invalid selection."
+        echo "❌ Invalid selection."
         return
       fi
 
@@ -850,12 +850,12 @@ modify_component_sizing() {
       echo "Removing sizeMapping override for $sm_key_3..."
       $OC -n "$ns" patch wo "$wo_name" --type=json \
         -p "[{\"op\":\"remove\",\"path\":\"/spec/sizeMapping/$sm_key_3\"}]" 2>/dev/null || \
-        echo "  â¹ï¸  No override found for $sm_key_3 (nothing to remove)"
-      echo "â Done"
+        echo "  ℹ️  No override found for $sm_key_3 (nothing to remove)"
+      echo "✓ Done"
       ;;
 
     *)
-      echo "â Invalid choice."
+      echo "❌ Invalid choice."
       ;;
   esac
 }
@@ -863,21 +863,21 @@ modify_component_sizing() {
 # Main configuration mode function
 run_configuration_mode() {
   echo ""
-  echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
-  echo "â                         CONFIGURATION MODE                                   â"
-  echo "â âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ£"
-  echo "â                                                                              â"
-  echo "â  This mode allows you to view and modify WatsonxOrchestrate CR settings.    â"
-  echo "â  Changes are applied immediately to the cluster.                             â"
-  echo "â                                                                              â"
-  echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                         CONFIGURATION MODE                                   ║"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+  echo "║                                                                              ║"
+  echo "║  This mode allows you to view and modify WatsonxOrchestrate CR settings.    ║"
+  echo "║  Changes are applied immediately to the cluster.                             ║"
+  echo "║                                                                              ║"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
   
   # Get WO CR name
   local wo_name=$($OC -n "$PROJECT_CPD_INST_OPERANDS" get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}')
   
   if [ -z "$wo_name" ]; then
-    echo "â Error: No WatsonxOrchestrate CR found in namespace $PROJECT_CPD_INST_OPERANDS"
+    echo "❌ Error: No WatsonxOrchestrate CR found in namespace $PROJECT_CPD_INST_OPERANDS"
     exit 1
   fi
   
@@ -886,9 +886,9 @@ run_configuration_mode() {
   while true; do
     show_current_config "$wo_name" "$PROJECT_CPD_INST_OPERANDS"
     
-    echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
-    echo "â                         Configuration Options                                â"
-    echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
+    echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                         Configuration Options                                ║"
+    echo "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo ""
     echo "  1. Modify Size (T-shirt sizing)"
     echo "  2. Toggle HPA (Horizontal Pod Autoscaling)"
@@ -914,7 +914,7 @@ run_configuration_mode() {
         exit 0
         ;;
       *)
-        echo "â Invalid option. Please select 1-7."
+        echo "❌ Invalid option. Please select 1-7."
         ;;
     esac
     
@@ -928,20 +928,20 @@ run_configuration_mode() {
 
 print_header() {
   echo ""
-  echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
-  echo "â                 watsonx Orchestrate Health Check Script                      â"
-  echo "â                         Author: Manu Thapar                                  â"
-  echo "â âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ£"
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                 watsonx Orchestrate Health Check Script                      ║"
+  echo "║                         Author: Manu Thapar                                  ║"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
   
   # Timestamp
   timestamp="$(ts)"
-  printf "â Timestamp: %-66sâ\n" "$timestamp"
-  echo "â                                                                              â"
+  printf "║ Timestamp: %-66s║\n" "$timestamp"
+  echo "║                                                                              ║"
   
   # Namespaces
-  printf "â OPERANDS Namespace: %-57sâ\n" "$PROJECT_CPD_INST_OPERANDS"
-  printf "â OPERATORS Namespace: %-56sâ\n" "${PROJECT_CPD_INST_OPERATORS:-none}"
-  echo "â                                                                              â"
+  printf "║ OPERANDS Namespace: %-57s║\n" "$PROJECT_CPD_INST_OPERANDS"
+  printf "║ OPERATORS Namespace: %-56s║\n" "${PROJECT_CPD_INST_OPERATORS:-none}"
+  echo "║                                                                              ║"
   
   # Edition
   print_box_line "Edition: ${WXO_EDITION:-unknown}"
@@ -950,7 +950,7 @@ print_header() {
   if [ -n "${WXO_DETECT_NOTE:-}" ]; then
     echo "$WXO_DETECT_NOTE" | sed 's/ and /\n/g' | while IFS= read -r line; do
       [ -z "$line" ] && continue
-      print_box_line "  â¢ $line"
+      print_box_line "  • $line"
     done
   fi
   print_box_blank
@@ -966,17 +966,17 @@ print_header() {
       case "$(echo "$docproc_enabled" | tr '[:upper:]' '[:lower:]')" in
         true)
           print_box_line "DocProc (Agentic): Enabled"
-          print_box_line "  â¢ wo.spec.docproc.enabled=true" ;;
+          print_box_line "  • wo.spec.docproc.enabled=true" ;;
         false)
           print_box_line "DocProc (Agentic): Disabled"
-          print_box_line "  â¢ wo.spec.docproc.enabled=false" ;;
+          print_box_line "  • wo.spec.docproc.enabled=false" ;;
         *)
           print_box_line "DocProc (Agentic): Disabled (default)"
-          print_box_line "  â¢ wo.spec.docproc.enabled=Not Present" ;;
+          print_box_line "  • wo.spec.docproc.enabled=Not Present" ;;
       esac
     else
       print_box_line "DocProc (Agentic): Disabled (default)"
-      print_box_line "  â¢ wo.spec.docproc.enabled=Not Present"
+      print_box_line "  • wo.spec.docproc.enabled=Not Present"
     fi
     print_box_blank
 
@@ -984,10 +984,10 @@ print_header() {
     wo_size=`$OCN get wo "$wo_name" -o jsonpath='{.spec.size}' 2>/dev/null || :`
     if [ -n "$wo_size" ]; then
       print_box_line "Size: $wo_size"
-      print_box_line "  â¢ wo.spec.size=$wo_size"
+      print_box_line "  • wo.spec.size=$wo_size"
     else
       print_box_line "Size: medium (default)"
-      print_box_line "  â¢ wo.spec.size=Not Present"
+      print_box_line "  • wo.spec.size=Not Present"
     fi
     print_box_blank
     
@@ -997,17 +997,17 @@ print_header() {
       case "$(echo "$hpa_enabled" | tr '[:upper:]' '[:lower:]')" in
         true)
           print_box_line "HPA: Enabled"
-          print_box_line "  â¢ wo.spec.autoScaleConfig=true" ;;
+          print_box_line "  • wo.spec.autoScaleConfig=true" ;;
         false)
           print_box_line "HPA: Disabled"
-          print_box_line "  â¢ wo.spec.autoScaleConfig=false" ;;
+          print_box_line "  • wo.spec.autoScaleConfig=false" ;;
         *)
           print_box_line "HPA: Disabled (default)"
-          print_box_line "  â¢ wo.spec.autoScaleConfig=Not Present" ;;
+          print_box_line "  • wo.spec.autoScaleConfig=Not Present" ;;
       esac
     else
       print_box_line "HPA: Disabled (default)"
-      print_box_line "  â¢ wo.spec.autoScaleConfig=Not Present"
+      print_box_line "  • wo.spec.autoScaleConfig=Not Present"
     fi
     print_box_blank
     
@@ -1017,7 +1017,7 @@ print_header() {
       case "$(echo "$ifm_enabled" | tr '[:upper:]' '[:lower:]')" in
         true)
           print_box_line "IFM: Enabled"
-          print_box_line "  â¢ wo.spec.wxolite.enable_ifm=true"
+          print_box_line "  • wo.spec.wxolite.enable_ifm=true"
           models_json=`$OCN get wo "$wo_name" -o jsonpath='{.spec.wxolite.ifm.model_config}' 2>/dev/null || :`
           if [ -n "$models_json" ] && [ "$models_json" != "{}" ] && [ "$models_json" != "null" ]; then
             print_box_line "  Models configured:"
@@ -1031,7 +1031,7 @@ print_header() {
                 [ -z "$mname" ] && continue
                 replica_info="${replicas:-default}"
                 shard_info="${shards:-default}"
-                model_line="â¢ ${mtype}/${mname}"
+                model_line="• ${mtype}/${mname}"
                 print_box_line "    $model_line"
               done < "$tmp_models"
             fi
@@ -1040,14 +1040,14 @@ print_header() {
           ;;
         false)
           print_box_line "IFM: Disabled"
-          print_box_line "  â¢ wo.spec.wxolite.enable_ifm=false" ;;
+          print_box_line "  • wo.spec.wxolite.enable_ifm=false" ;;
         *)
           print_box_line "IFM: Disabled (default)"
-          print_box_line "  â¢ wo.spec.wxolite.enable_ifm=Not Present" ;;
+          print_box_line "  • wo.spec.wxolite.enable_ifm=Not Present" ;;
       esac
     else
       print_box_line "IFM: Disabled (default)"
-      print_box_line "  â¢ wo.spec.wxolite.enable_ifm=Not Present"
+      print_box_line "  • wo.spec.wxolite.enable_ifm=Not Present"
     fi
     print_box_blank
 
@@ -1059,34 +1059,34 @@ print_header() {
         true)
           if [ -n "$aa_seed" ]; then
             print_box_line "Active-Active: Enabled"
-            print_box_line "  â¢ wo.spec.activeActive.enabled=true"
-            print_box_line "  â¢ wo.spec.activeActive.activeActiveSeed=$aa_seed"
+            print_box_line "  • wo.spec.activeActive.enabled=true"
+            print_box_line "  • wo.spec.activeActive.activeActiveSeed=$aa_seed"
           else
-            print_box_line "Active-Active: Enabled (â ï¸  no seed)"
-            print_box_line "  â¢ wo.spec.activeActive.enabled=true"
-            print_box_line "  â¢ wo.spec.activeActive.activeActiveSeed=Not Set"
+            print_box_line "Active-Active: Enabled (⚠️  no seed)"
+            print_box_line "  • wo.spec.activeActive.enabled=true"
+            print_box_line "  • wo.spec.activeActive.activeActiveSeed=Not Set"
           fi
           ;;
         false)
           print_box_line "Active-Active: Disabled"
-          print_box_line "  â¢ wo.spec.activeActive.enabled=false" ;;
+          print_box_line "  • wo.spec.activeActive.enabled=false" ;;
         *)
           print_box_line "Active-Active: Disabled (default)"
-          print_box_line "  â¢ wo.spec.activeActive.enabled=Not Present" ;;
+          print_box_line "  • wo.spec.activeActive.enabled=Not Present" ;;
       esac
     else
       print_box_line "Active-Active: Disabled (default)"
-      print_box_line "  â¢ wo.spec.activeActive.enabled=Not Present"
+      print_box_line "  • wo.spec.activeActive.enabled=Not Present"
     fi
   else
-    print_box_line "â ï¸  WO CR not found - cannot retrieve configuration details"
+    print_box_line "⚠️  WO CR not found - cannot retrieve configuration details"
   fi
   
-  echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
 }
 
-section() { echo; echo "â¶ $1"; }
+section() { echo; echo "▶ $1"; }
 
 
 detect_operators_namespace_from_deployments() {
@@ -1264,13 +1264,13 @@ prompt_restart_bad_pods() {
           echo "    Deleting $pr_pod ..."
           $OC -n "$ns" delete pod "$pr_pod" --ignore-not-found
         done
-        echo "  Pods deleted â StatefulSet/Deployment will recreate them automatically."
+        echo "  Pods deleted — StatefulSet/Deployment will recreate them automatically."
         ;;
       *) echo "  Skipping restart." ;;
     esac
   else
     echo ""
-    echo "  (timed out â skipping restart)"
+    echo "  (timed out — skipping restart)"
   fi
 }
 
@@ -1278,7 +1278,7 @@ check_wo_pods() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   bad_found=0
   total_wo=0
-  echo "â¶ Checking Orchestrate pods"
+  echo "▶ Checking Orchestrate pods"
   tmp_list=`mktemp 2>/dev/null || echo "/tmp/wo_pods.$$"`
   tmp_bad=`mktemp 2>/dev/null || echo "/tmp/wo_bad.$$"`
   $OCN get pods --no-headers 2>/dev/null > "$tmp_list" || :
@@ -1307,16 +1307,16 @@ check_wo_pods() {
   done < "$tmp_list"
 
   if [ "${total_wo:-0}" -eq 0 ]; then
-    echo "  â No pods found with prefix 'wo-' in namespace $PROJECT_CPD_INST_OPERANDS."
+    echo "  ❌ No pods found with prefix 'wo-' in namespace $PROJECT_CPD_INST_OPERANDS."
     rm -f "$tmp_list" "$tmp_bad"
     return 1
   fi
   if [ "${bad_found:-0}" -eq 0 ]; then
-    echo "  â All Orchestrate pods are healthy"
+    echo "  ✅ All Orchestrate pods are healthy"
     rm -f "$tmp_list" "$tmp_bad"
     return 0
   else
-    echo "  â Some pods are not healthy. Pods with issues:"
+    echo "  ❌ Some pods are not healthy. Pods with issues:"
   printf "%-55s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
   printf "%-55s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
   awk -F"\t" '{printf "%-55s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
@@ -1331,16 +1331,16 @@ check_wo_pods() {
 check_wo_cr() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   wo_name=`$OCN get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
-  if [ -z "$wo_name" ]; then echo "  â watsonx Orchestrate CR not found oc get wo"; return 1; fi
+  if [ -z "$wo_name" ]; then echo "  ❌ watsonx Orchestrate CR not found oc get wo"; return 1; fi
   wo_ready=`$OCN get wo "$wo_name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
   wo_status=`$OCN get wo "$wo_name" -o jsonpath='{.status.watsonxOrchestrateStatus}' 2>/dev/null || :`
   wo_progress=`$OCN get wo "$wo_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
   
   if [ "$wo_ready" = "True" ] && [ "$wo_status" = "Completed" ] && [ "$wo_progress" = "100%" ]; then
-    echo "  â watsonx Orchestrate ($wo_name): Ready=True, Status=Completed, Progress=100%"
+    echo "  ✅ watsonx Orchestrate ($wo_name): Ready=True, Status=Completed, Progress=100%"
     return 0
   else
-    echo "  â watsonx Orchestrate ($wo_name): Ready=$wo_ready, Status=$wo_status, Progress=$wo_progress"
+    echo "  ❌ watsonx Orchestrate ($wo_name): Ready=$wo_ready, Status=$wo_status, Progress=$wo_progress"
     return 1
   fi
 }
@@ -1349,7 +1349,7 @@ check_all_operand_pods() {
   local ns="$PROJECT_CPD_INST_OPERANDS"
   local bad_found=0
   local total=0
-  echo "â¶ Checking all pods in operands namespace ($ns)"
+  echo "▶ Checking all pods in operands namespace ($ns)"
   tmp_list=`mktemp 2>/dev/null || echo "/tmp/all_pods.$"`
   tmp_bad=`mktemp  2>/dev/null || echo "/tmp/all_bad.$"`
   $OC -n "$ns" get pods --no-headers 2>/dev/null > "$tmp_list" || :
@@ -1376,16 +1376,16 @@ check_all_operand_pods() {
   rm -f "$tmp_list"
 
   if [ "${total:-0}" -eq 0 ]; then
-    echo "  â¹ï¸  No non orchestrate pods found in $ns"
+    echo "  ℹ️  No non orchestrate pods found in $ns"
     rm -f "$tmp_bad"
     return 0
   fi
   if [ "${bad_found:-0}" -eq 0 ]; then
-    echo "  â All non orchestrate pods in $ns are healthy ($total pods checked)"
+    echo "  ✅ All non orchestrate pods in $ns are healthy ($total pods checked)"
     rm -f "$tmp_bad"
     return 0
   else
-    echo "  â ï¸  Some non orchestrate pods in $ns are not healthy:"
+    echo "  ⚠️  Some non orchestrate pods in $ns are not healthy:"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
     awk -F"\t" '{printf "%-60s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
@@ -1400,7 +1400,7 @@ check_all_operand_pods() {
 check_wocomponentservices() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   name=`$OCN get wocomponentservices.wo.watsonx.ibm.com --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
-  if [ -z "$name" ]; then echo "  â WoComponentServices CR not found oc get wocomponentservices.wo.watsonx.ibm.com"; return 1; fi
+  if [ -z "$name" ]; then echo "  ❌ WoComponentServices CR not found oc get wocomponentservices.wo.watsonx.ibm.com"; return 1; fi
   comp_status=`$OCN get wocomponentservices.wo.watsonx.ibm.com "$name" -o jsonpath='{.status.componentStatus}' 2>/dev/null || :`
   deployed=`$OCN get wocomponentservices.wo.watsonx.ibm.com "$name" -o jsonpath='{.status.Deployed}' 2>/dev/null || :`
   upgrade=`$OCN get wocomponentservices.wo.watsonx.ibm.com "$name" -o jsonpath='{.status.Upgrade}' 2>/dev/null || :`
@@ -1414,10 +1414,10 @@ check_wocomponentservices() {
       gsub(/[,"]/, ""); sub(/^[[:space:]]*/, "");
       if ($0 ~ /: *false$/ || $0 ~ /: *False$/) print $0 }'` || :
   if { [ "$comp_status" = "FullInstallComplete" ] || [ "$comp_status" = "Reconciled" ] || [ "$comp_status" = "ReconciledLite" ]; } && [ "$failure" != "True" ]; then
-    echo "  â WoComponentServices ($name): componentStatus=$comp_status, Deployed=${deployed:-?}, Upgrade=${upgrade:-?}, Successful=${successful:-?}, Running=${running:-?}"
+    echo "  ✅ WoComponentServices ($name): componentStatus=$comp_status, Deployed=${deployed:-?}, Upgrade=${upgrade:-?}, Successful=${successful:-?}, Running=${running:-?}"
     return 0
   else
-    echo "  â WoComponentServices ($name): componentStatus=$comp_status, Deployed=${deployed:-?}, Upgrade=${upgrade:-?}, Successful=${successful:-?}, Running=${running:-?}"
+    echo "  ❌ WoComponentServices ($name): componentStatus=$comp_status, Deployed=${deployed:-?}, Upgrade=${upgrade:-?}, Successful=${successful:-?}, Running=${running:-?}"
     if [ -n "${false_components:-}" ]; then
       echo "   Components with DeployedStatus=false:"
       echo "$false_components" | awk -F: '{gsub(/[[:space:]]*/,"",$1); gsub(/[[:space:]]*/,"",$2); print "     - " $1 " = " tolower($2)}'
@@ -1429,15 +1429,15 @@ check_wocomponentservices() {
 check_wa_cr() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   wa_name=`$OCN get wa --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
-  if [ -z "$wa_name" ]; then echo "  â watsonx Assistant CR not found oc get wa"; return 1; fi
+  if [ -z "$wa_name" ]; then echo "  ❌ watsonx Assistant CR not found oc get wa"; return 1; fi
   wa_ready=`$OCN get wa "$wa_name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
   wa_status=`$OCN get wa "$wa_name" -o jsonpath='{.status.watsonAssistantStatus}' 2>/dev/null || :`
   wa_progress=`$OCN get wa "$wa_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
   if [ "$wa_ready" = "True" ] && [ "$wa_status" = "Completed" ] && [ "$wa_progress" = "100%" ]; then
-    echo "  â watsonx Assistant ($wa_name): Ready=True, Status=Completed, Progress=100%"
+    echo "  ✅ watsonx Assistant ($wa_name): Ready=True, Status=Completed, Progress=100%"
     return 0
   else
-    echo "  â watsonx Assistant ($wa_name): Ready=$wa_ready, Status=$wa_status, Progress=$wa_progress"
+    echo "  ❌ watsonx Assistant ($wa_name): Ready=$wa_ready, Status=$wa_status, Progress=$wa_progress"
     
     # For agentic_assistant edition in health check mode, check waall resources
     if [ "${WXO_EDITION:-unknown}" = "agentic_assistant" ] && [ "${TROUBLESHOOT_MODE:-0}" -eq 0 ]; then
@@ -1448,20 +1448,20 @@ check_wa_cr() {
 }
 
 check_waall_resources() {
-  echo "  ð Checking WatsonAssistantAll (waall) resources..."
+  echo "  📋 Checking WatsonAssistantAll (waall) resources..."
   waall_status=`$OC -n $PROJECT_CPD_INST_OPERANDS get waall --no-headers 2>/dev/null` || :
   if [ -n "$waall_status" ]; then
     echo "$waall_status" | while read -r line; do
       echo "     $line"
     done
   else
-    echo "  â ï¸  No waall resources found"
+    echo "  ⚠️  No waall resources found"
   fi
 }
 
 check_wa_operator_verification() {
   echo ""
-  echo "  ð Checking Watson Assistant operator verification status..."
+  echo "  🔍 Checking Watson Assistant operator verification status..."
   
   # Check waall resources first
   check_waall_resources
@@ -1481,29 +1481,29 @@ check_wa_operator_verification() {
   fi
   
   if [ -z "$operator_pod" ]; then
-    echo "  â ï¸  Watson Assistant operator pod not found or not running in ${PROJECT_CPD_INST_OPERATORS:-cpd-operators}"
-    echo "  ð¡ Tried searching for:"
+    echo "  ⚠️  Watson Assistant operator pod not found or not running in ${PROJECT_CPD_INST_OPERATORS:-cpd-operators}"
+    echo "  💡 Tried searching for:"
     echo "     - Pods with label app.kubernetes.io/name=ibm-watson-assistant-operator"
     echo "     - Pods with label name=ibm-watson-assistant-operator"
     echo "     - Pods matching pattern 'watson-assistant.*operator'"
     return 1
   fi
   
-  echo "  ð¦ Operator pod: $operator_pod"
+  echo "  📦 Operator pod: $operator_pod"
   
   # Check operator logs for verification status
   echo ""
-  echo "  ð Checking operator logs for rollout verification status..."
+  echo "  📄 Checking operator logs for rollout verification status..."
   
   # List log files in the operator pod
   log_files=`$OC_OPS exec "$operator_pod" -- sh -c 'ls -1 *.1 *.log 2>/dev/null' 2>/dev/null` || :
   
   if [ -z "$log_files" ]; then
-    echo "  â¹ï¸  No log files (*.1 or *.log) found in operator pod â skipping log analysis"
+    echo "  ℹ️  No log files (*.1 or *.log) found in operator pod — skipping log analysis"
     return 0
   fi
   
-  echo "  ð Found log files:"
+  echo "  📁 Found log files:"
   echo "$log_files" | while read -r logfile; do
     echo "     - $logfile"
   done
@@ -1511,7 +1511,7 @@ check_wa_operator_verification() {
   # Check log files for verification status
   unverified_found=false
   echo ""
-  echo "  ð Analyzing rollout verification status..."
+  echo "  🔎 Analyzing rollout verification status..."
   
   # First check .log files, then .log.1 files
   for logfile in `echo "$log_files" | grep '\.log$' | grep -v '\.log\.1$'`; do
@@ -1536,7 +1536,7 @@ check_wa_operator_verification() {
   done
   
   if [ "$unverified_found" = "false" ]; then
-    echo "  â All nodes verified successfully"
+    echo "  ✅ All nodes verified successfully"
   fi
 }
 
@@ -1552,7 +1552,7 @@ process_rollout_info() {
     
     if [ "$unverified" != "" ] || [ "$failed" != "" ] || [ "$unstarted" != "" ]; then
       echo ""
-      echo "  â ï¸  Issues found in $logfile:"
+      echo "  ⚠️  Issues found in $logfile:"
       echo "$rollout_info" | sed 's/^/     /'
       unverified_found=true
       
@@ -1565,7 +1565,7 @@ process_rollout_info() {
       else
         show_logs="n"
         echo
-        echo "  â±ï¸  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping log display..."
+        echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping log display..."
       fi
       
       if [ "$show_logs" = "y" ] || [ "$show_logs" = "Y" ]; then
@@ -1576,7 +1576,7 @@ process_rollout_info() {
         else
           line_count="50"
           echo
-          echo "  â±ï¸  No input received, using default 50 lines..."
+          echo "  ⏱️  No input received, using default 50 lines..."
         fi
         
         # Validate line count
@@ -1585,7 +1585,7 @@ process_rollout_info() {
         fi
         
         echo ""
-        echo "  ð Last $line_count lines of $logfile:"
+        echo "  📄 Last $line_count lines of $logfile:"
         echo "  ----------------------------------------"
         $OC_OPS exec "$operator_pod" -- sh -c "tail -n $line_count '$logfile'" 2>/dev/null | sed 's/^/  /'
         echo "  ----------------------------------------"
@@ -1597,16 +1597,16 @@ process_rollout_info() {
 check_ifm_cr() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   ifm_name=`$OCN get watsonxaiifm --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
-  if [ -z "$ifm_name" ]; then echo "  â watsonx AI IFM CR not found oc get watsonxaiifm"; return 1; fi
+  if [ -z "$ifm_name" ]; then echo "  ❌ watsonx AI IFM CR not found oc get watsonxaiifm"; return 1; fi
   cond_success=`$OCN get watsonxaiifm "$ifm_name" -o jsonpath='{.status.conditions[?(@.type=="Successful")].status}' 2>/dev/null || :`
   cond_failure=`$OCN get watsonxaiifm "$ifm_name" -o jsonpath='{.status.conditions[?(@.type=="Failure")].status}' 2>/dev/null || :`
   ifm_status=`$OCN get watsonxaiifm "$ifm_name" -o jsonpath='{.status.watsonxaiifmStatus}' 2>/dev/null || :`
   ifm_progress=`$OCN get watsonxaiifm "$ifm_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
   if [ "$cond_success" = "True" ] && { [ "$cond_failure" = "False" ] || [ -z "$cond_failure" ]; } && [ "$ifm_status" = "Completed" ] && [ "$ifm_progress" = "100%" ]; then
-    echo "  â IFM ($ifm_name): Successful=True, Failure=${cond_failure:-None}, Status=Completed, Progress=100%"
+    echo "  ✅ IFM ($ifm_name): Successful=True, Failure=${cond_failure:-None}, Status=Completed, Progress=100%"
     return 0
   else
-    echo "  â IFM ($ifm_name): Successful=$cond_success, Failure=$cond_failure, Status=$ifm_status, Progress=$ifm_progress"
+    echo "  ❌ IFM ($ifm_name): Successful=$cond_success, Failure=$cond_failure, Status=$ifm_status, Progress=$ifm_progress"
     return 1
   fi
 }
@@ -1614,18 +1614,18 @@ check_ifm_cr() {
 check_docproc() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get documentprocessings.watsonx.ibm.com --no-headers 2>/dev/null | awk '$1 ~ /^wo-/'` || :
-  if [ -z "$rows" ]; then echo "  â No DocumentProcessing CRs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No DocumentProcessing CRs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$rows" | while read name version status deployed verified age; do
     [ -z "$name" ] && continue
     if [ "$status" = "Completed" ]; then
       if [ -n "$deployed" ] && [ -n "$verified" ] && [ "$deployed" = "$verified" ]; then
-        echo "  â DocumentProcessing $name: Status=$status, Deployed=$deployed, Verified=$verified"
+        echo "  ✅ DocumentProcessing $name: Status=$status, Deployed=$deployed, Verified=$verified"
       else
-        echo "  â DocumentProcessing $name: Status=$status"
+        echo "  ✅ DocumentProcessing $name: Status=$status"
       fi
     else
-      echo "  â DocumentProcessing $name: Status=${status:-Unknown}"
+      echo "  ❌ DocumentProcessing $name: Status=${status:-Unknown}"
       bad=1
     fi
   done
@@ -1635,18 +1635,18 @@ check_docproc() {
 check_digital_employees() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get digitalemployees.wo.watsonx.ibm.com --no-headers 2>/dev/null | awk '$1 ~ /^wo-/'` || :
-  if [ -z "$rows" ]; then echo "  â No DigitalEmployees CRs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No DigitalEmployees CRs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$rows" | while read name ready age; do
     [ -z "$name" ] && continue
     if [ "$ready" = "True" ]; then
-      echo "  â DigitalEmployees $name: Ready=True"
+      echo "  ✅ DigitalEmployees $name: Ready=True"
     else
       rdy=`$OCN get digitalemployees.wo.watsonx.ibm.com "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
       if [ "$rdy" = "True" ]; then
-        echo "  â DigitalEmployees $name: Ready=True"
+        echo "  ✅ DigitalEmployees $name: Ready=True"
       else
-        echo "  â DigitalEmployees $name: Ready=${rdy:-$ready}"
+        echo "  ❌ DigitalEmployees $name: Ready=${rdy:-$ready}"
         bad=1
       fi
     fi
@@ -1657,18 +1657,18 @@ check_digital_employees() {
 check_uab_ads() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get uabautomationdecisionservices.uab.ba.ibm.com --no-headers 2>/dev/null` || :
-  if [ -z "$rows" ]; then echo "  â No UAB Automation Decision Services CRs found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No UAB Automation Decision Services CRs found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$rows" | while read name designer runtime ready version; do
     [ -z "$name" ] && continue
     if [ "$ready" = "True" ]; then
-      echo "  â UAB ADS $name: Designer=$designer, Runtime=$runtime, Ready=True, Version=$version"
+      echo "  ✅ UAB ADS $name: Designer=$designer, Runtime=$runtime, Ready=True, Version=$version"
     else
       rdy=`$OCN get uabautomationdecisionservices.uab.ba.ibm.com "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
       if [ "$rdy" = "True" ]; then
-        echo "  â UAB ADS $name: Designer=$designer, Runtime=$runtime, Ready=True, Version=$version"
+        echo "  ✅ UAB ADS $name: Designer=$designer, Runtime=$runtime, Ready=True, Version=$version"
       else
-        echo "  â UAB ADS $name: Ready=${rdy:-$ready}, Designer=$designer, Runtime=$runtime, Version=$version"
+        echo "  ❌ UAB ADS $name: Ready=${rdy:-$ready}, Designer=$designer, Runtime=$runtime, Version=$version"
         bad=1
       fi
     fi
@@ -1679,7 +1679,7 @@ check_uab_ads() {
 check_edb_clusters() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   names=`$OCN get clusters.postgresql.k8s.enterprisedb.io --no-headers 2>/dev/null | awk '$1 ~ /^wo-/{print $1}'` || :
-  if [ -z "$names" ]; then echo "  â No EDB Postgres clusters starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$names" ]; then echo "  ❌ No EDB Postgres clusters starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$names" | while read n; do
     [ -z "$n" ] && continue
@@ -1697,19 +1697,19 @@ check_edb_clusters() {
     fi
     echo "$status_text" | grep -qi "healthy" && healthy_phase=1 || healthy_phase=0
     if [ -z "$instances" ] || [ -z "$ready" ]; then
-      echo "  â EDB cluster $n: could not determine Instances or Ready counts"
+      echo "  ❌ EDB cluster $n: could not determine Instances or Ready counts"
       bad=1
     elif [ "$ready" = "$instances" ] && [ "$healthy_phase" -eq 1 ]; then
       if [ -n "$primary_pod" ]; then
-        echo "  â EDB cluster $n: Ready=$ready/$instances, Status=$status_text, Primary=$primary_pod"
+        echo "  ✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text, Primary=$primary_pod"
       else
-        echo "  â EDB cluster $n: Ready=$ready/$instances, Status=$status_text"
+        echo "  ✅ EDB cluster $n: Ready=$ready/$instances, Status=$status_text"
       fi
     else
       if [ -n "$primary_pod" ]; then
-        echo "  â EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}, Primary=$primary_pod"
+        echo "  ❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}, Primary=$primary_pod"
       else
-        echo "  â EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}"
+        echo "  ❌ EDB cluster $n: Ready=$ready/$instances, Status=${status_text:-Unknown}"
       fi
       bad=1
     fi
@@ -1724,7 +1724,7 @@ check_kafka_readiness() {
   $OCN get kafka -o 'custom-columns=NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status' --no-headers 2>/dev/null | awk '$1 ~ /^wo-/' > "$tmp_kafka" || :
 
   if [ ! -s "$tmp_kafka" ]; then
-    echo "  â No Kafka resources starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"
+    echo "  ❌ No Kafka resources starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"
     rm -f "$tmp_kafka"
     return 1
   fi
@@ -1733,10 +1733,10 @@ check_kafka_readiness() {
   while read -r name ready; do
     [ -z "${name:-}" ] && continue
     if [ "${ready:-}" = "True" ]; then
-      echo "  â Kafka $name: Ready=True"
+      echo "  ✅ Kafka $name: Ready=True"
     else
       val="${ready:-Unknown}"
-      echo "  â Kafka $name: Ready=$val"
+      echo "  ❌ Kafka $name: Ready=$val"
       bad=1
     fi
   done < "$tmp_kafka"
@@ -1748,16 +1748,16 @@ check_kafka_readiness() {
 check_redis_cp() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get rediscps.redis.ibm.com --no-headers 2>/dev/null | awk '$1 ~ /^wo-/'` || :
-  if [ -z "$rows" ]; then echo "  â No Redis CPs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No Redis CPs starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   echo "$rows" | while read name version reconciled status age; do
     [ -z "$name" ] && continue
     ready=`$OCN get rediscps.redis.ibm.com "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
     if [ "$ready" = "True" ] || [ "$status" = "Completed" ]; then
-      echo "  â RedisCP $name: Status=${ready:+Ready=True}${ready:+"; "}$status Reconciled=${reconciled:-unknown}"
+      echo "  ✅ RedisCP $name: Status=${ready:+Ready=True}${ready:+"; "}$status Reconciled=${reconciled:-unknown}"
     else
       val="${ready:-$status}"; [ -z "$val" ] && val="Unknown"
-      echo "  â RedisCP $name: Status=$val Reconciled=${reconciled:-unknown}"
+      echo "  ❌ RedisCP $name: Status=$val Reconciled=${reconciled:-unknown}"
       bad=1
     fi
   done
@@ -1767,7 +1767,7 @@ check_redis_cp() {
 check_wxd_engines() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   rows=`$OCN get wxdengines.watsonxdata.ibm.com --no-headers 2>/dev/null | awk '$1 ~ /^wo-/'` || :
-  if [ -z "$rows" ]; then echo "  â No WXD engines starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
+  if [ -z "$rows" ]; then echo "  ❌ No WXD engines starting with 'wo-' found in $PROJECT_CPD_INST_OPERANDS"; return 1; fi
   bad=0
   # Use process substitution to avoid subshell issue with pipe
   while read name version type display size reconcile status age; do
@@ -1775,16 +1775,16 @@ check_wxd_engines() {
     echo "$reconcile" | grep -qi "completed" && recon_ok=1 || recon_ok=0
     echo "$status" | grep -Eqi "^(running|completed)$" && phase_ok=1 || phase_ok=0
     if [ "$recon_ok" -eq 1 ] && [ "$phase_ok" -eq 1 ]; then
-      echo "  â WXD engine $name (${type:-unknown}): Reconcile=$reconcile, Status=$status"
+      echo "  ✅ WXD engine $name (${type:-unknown}): Reconcile=$reconcile, Status=$status"
     else
       recon_json=`$OCN get wxdengines.watsonxdata.ibm.com "$name" -o jsonpath='{.status.reconcile}' 2>/dev/null || :`
       phase_json=`$OCN get wxdengines.watsonxdata.ibm.com "$name" -o jsonpath='{.status.phase}' 2>/dev/null || :`
       if { echo "${recon_json}" | grep -qi "completed"; } && { echo "${phase_json:-$status}" | grep -Eqi "^(running|completed)$"; }; then
-        echo "  â WXD engine $name (${type:-unknown}): Reconcile=${recon_json:-$reconcile}, Status=${phase_json:-$status}"
+        echo "  ✅ WXD engine $name (${type:-unknown}): Reconcile=${recon_json:-$reconcile}, Status=${phase_json:-$status}"
       else
         val_recon="${reconcile:-${recon_json:-Unknown}}"
         val_phase="${status:-${phase_json:-Unknown}}"
-        echo "  â WXD engine $name (${type:-unknown}): Reconcile=$val_recon, Status=$val_phase"
+        echo "  ❌ WXD engine $name (${type:-unknown}): Reconcile=$val_recon, Status=$val_phase"
         bad=1
       fi
     fi
@@ -1800,7 +1800,7 @@ check_obc() {
   $OCN get obc --no-headers 2>/dev/null | awk '$1 ~ /^wo-/' > "$tmp_obc" || :
 
   if [ ! -s "$tmp_obc" ]; then
-    echo "  â¹ï¸ No OBC resources starting with 'wo-' found, skipping"
+    echo "  ℹ️ No OBC resources starting with 'wo-' found, skipping"
     rm -f "$tmp_obc"
     return 0
   fi
@@ -1812,9 +1812,9 @@ check_obc() {
     age="$(printf '%s\n' "$line" | awk '{print $4}')"
     [ -z "${name:-}" ] && continue
     if [ "${phase:-}" = "Bound" ]; then
-      echo "  â OBC $name: Phase=Bound Age=${age:-?}"
+      echo "  ✅ OBC $name: Phase=Bound Age=${age:-?}"
     else
-      echo "  â OBC $name: Phase=${phase:-Unknown} Age=${age:-?}"
+      echo "  ❌ OBC $name: Phase=${phase:-Unknown} Age=${age:-?}"
       bad=1
     fi
   done < "$tmp_obc"
@@ -1840,7 +1840,7 @@ check_jobs() {
   $OCN get jobs -l "$job_label" --no-headers 2>/dev/null > "$tmp_jobs" || :
 
   if [ ! -s "$tmp_jobs" ]; then
-    echo "  â¹ï¸ No $job_desc jobs found, skipping"
+    echo "  ℹ️ No $job_desc jobs found, skipping"
     rm -f "$tmp_jobs"
     return 0
   fi
@@ -1883,15 +1883,15 @@ check_jobs() {
   done < "$tmp_jobs"
   
   if [ "${checked_count:-0}" -eq 0 ]; then
-    echo "  â¹ï¸ No non-cronjob $job_desc jobs found (cronjobs excluded)"
+    echo "  ℹ️ No non-cronjob $job_desc jobs found (cronjobs excluded)"
     rm -f "$tmp_jobs"
     return 0
   fi
   
   if [ "$bad" -eq 0 ]; then
-    echo "  â All $job_desc jobs completed successfully ($checked_count jobs checked)"
+    echo "  ✅ All $job_desc jobs completed successfully ($checked_count jobs checked)"
   else
-    echo "  â Some $job_desc jobs have issues:"
+    echo "  ❌ Some $job_desc jobs have issues:"
     if [ -n "$failed_jobs" ]; then
       echo "$failed_jobs"
     fi
@@ -1913,39 +1913,39 @@ check_knative_eventing_deployment() {
   
   # Check OpenShift Serverless namespace and deployments
   if ! $OC get namespace openshift-serverless >/dev/null 2>&1; then
-    echo "â OpenShift Serverless namespace not found"
+    echo "❌ OpenShift Serverless namespace not found"
     return 1
   fi
   
   bad=0
   for dep in knative-openshift knative-openshift-ingress knative-operator-webhook; do
     if ! $OC get deployment "$dep" -n openshift-serverless >/dev/null 2>&1; then
-      echo "â OpenShift Serverless deployment $dep not found"
+      echo "❌ OpenShift Serverless deployment $dep not found"
       bad=1
       continue
     fi
     ready=$($OC get deployment "$dep" -n openshift-serverless -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
     desired=$($OC get deployment "$dep" -n openshift-serverless -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
     if [ "$ready" != "$desired" ] || [ "$ready" = "0" ]; then
-      echo "â OpenShift Serverless deployment $dep not ready ($ready/$desired replicas)"
+      echo "❌ OpenShift Serverless deployment $dep not ready ($ready/$desired replicas)"
       bad=1
     fi
   done
   
   # Check Knative Eventing namespace
   if ! $OC get namespace knative-eventing >/dev/null 2>&1; then
-    echo "â Knative Eventing namespace not found"
+    echo "❌ Knative Eventing namespace not found"
     return 1
   fi
   
   # Check KnativeEventing CR
   if ! $OC get knativeeventings.operator.knative.dev knative-eventing -n knative-eventing >/dev/null 2>&1; then
-    echo "â KnativeEventing CR not found"
+    echo "❌ KnativeEventing CR not found"
     bad=1
   else
     ke_ready=$($OC get knativeeventings.operator.knative.dev knative-eventing -n knative-eventing -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
     if [ "$ke_ready" != "True" ]; then
-      echo "â KnativeEventing CR not ready (status: $ke_ready)"
+      echo "❌ KnativeEventing CR not ready (status: $ke_ready)"
       bad=1
     fi
   fi
@@ -1953,14 +1953,14 @@ check_knative_eventing_deployment() {
   # Check key Knative Eventing deployments
   for dep in eventing-webhook eventing-controller; do
     if ! $OC get deployment "$dep" -n knative-eventing >/dev/null 2>&1; then
-      echo "â Knative Eventing deployment $dep not found"
+      echo "❌ Knative Eventing deployment $dep not found"
       bad=1
       continue
     fi
     ready=$($OC get deployment "$dep" -n knative-eventing -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
     desired=$($OC get deployment "$dep" -n knative-eventing -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
     if [ "$ready" != "$desired" ] || [ "$ready" = "0" ]; then
-      echo "â Knative Eventing deployment $dep not ready ($ready/$desired replicas)"
+      echo "❌ Knative Eventing deployment $dep not ready ($ready/$desired replicas)"
       bad=1
     fi
   done
@@ -1980,13 +1980,13 @@ check_requested_operator() {
   desired=$($OC get deployment "$dep_name" -n "$PROJECT_CPD_INST_OPERATORS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
 
   if [ "$ready" = "$desired" ] && [ "$ready" != "0" ]; then
-    echo "  â $operator_label ($dep_name) is ready ($ready/$desired replicas)"
+    echo "  ✅ $operator_label ($dep_name) is ready ($ready/$desired replicas)"
   else
     if [ "$desired" = "0" ]; then
-      echo "  â ï¸  $operator_label ($dep_name) is scaled down (0 replicas)"
+      echo "  ⚠️  $operator_label ($dep_name) is scaled down (0 replicas)"
       scaled_down_operators="${scaled_down_operators}${dep_name} "
     else
-      echo "  â $operator_label ($dep_name) not ready ($ready/$desired replicas)"
+      echo "  ❌ $operator_label ($dep_name) not ready ($ready/$desired replicas)"
     fi
     bad=1
   fi
@@ -1997,7 +1997,7 @@ check_orchestrate_operators() {
   scaled_down_operators=""
   checked_requested_operators=0
 
-  echo "â¶ Checking Requested Operators"
+  echo "▶ Checking Requested Operators"
 
   for spec in \
     'wxo_operator::^ibm-wxo-componentcontroller-manager$' 'postgresql::^postgresql-operator-controller-manager' \
@@ -2021,13 +2021,13 @@ check_orchestrate_operators() {
   fi
 
   if [ "$checked_requested_operators" = "0" ]; then
-    echo "  â¹ï¸  None of the requested operator deployments were found in $PROJECT_CPD_INST_OPERATORS"
+    echo "  ℹ️  None of the requested operator deployments were found in $PROJECT_CPD_INST_OPERATORS"
   fi
   
   # In troubleshoot mode ONLY, offer to scale up operators if they're scaled down
   if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ -n "$scaled_down_operators" ]; then
     echo
-    echo "â ï¸  Scaled down operators detected: $scaled_down_operators"
+    echo "⚠️  Scaled down operators detected: $scaled_down_operators"
     printf "Would you like to scale up these operators to 1 replica? (y/N) [default: n, auto-skip in ${USER_INPUT_TIMEOUT}s]: "
     
     # Read with timeout
@@ -2037,7 +2037,7 @@ check_orchestrate_operators() {
       # Timeout - default to no
       scale_response="n"
       echo
-      echo "â±ï¸  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping operator scale-up..."
+      echo "⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping operator scale-up..."
     fi
     
     if [ "$scale_response" = "y" ] || [ "$scale_response" = "Y" ]; then
@@ -2050,7 +2050,7 @@ check_orchestrate_operators() {
       echo
       echo "Waiting 30 seconds for operators to start..."
       sleep 30
-      echo "â Operators scaled up. Continuing with health checks..."
+      echo "✅ Operators scaled up. Continuing with health checks..."
     fi
   fi
   
@@ -2063,7 +2063,7 @@ check_ibm_events_operator() {
   events_ns="ibm-knative-events"
   
   if ! $OC get namespace "$events_ns" >/dev/null 2>&1; then
-    echo "â IBM Events Operator namespace $events_ns not found"
+    echo "❌ IBM Events Operator namespace $events_ns not found"
     return 1
   fi
   
@@ -2073,7 +2073,7 @@ check_ibm_events_operator() {
   events_deploy=$($OC get deployment -n "$events_ns" -o name 2>/dev/null | grep -E 'ibm-events-(cluster-)?operator' | head -n1 | sed 's|deployment.apps/||')
   
   if [ -z "$events_deploy" ]; then
-    echo "â IBM Events Operator deployment not found in $events_ns"
+    echo "❌ IBM Events Operator deployment not found in $events_ns"
     return 1
   fi
   
@@ -2081,7 +2081,7 @@ check_ibm_events_operator() {
   desired=$($OC get deployment "$events_deploy" -n "$events_ns" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
   [ "${DEBUG_MODE:-0}" -eq 1 ] && echo "    [DEBUG] Deployment $events_deploy: ready=$ready, desired=$desired"
   if [ "$ready" != "$desired" ] || [ "$ready" = "0" ]; then
-    echo "â IBM Events Operator ($events_deploy) not ready ($ready/$desired replicas)"
+    echo "❌ IBM Events Operator ($events_deploy) not ready ($ready/$desired replicas)"
     bad=1
   fi
   
@@ -2093,13 +2093,13 @@ check_kafka_cluster() {
   bad=0
   
   if ! $OC get kafkas.ibmevents.ibm.com knative-eventing-kafka -n knative-eventing >/dev/null 2>&1; then
-    echo "â Kafka cluster 'knative-eventing-kafka' not found"
+    echo "❌ Kafka cluster 'knative-eventing-kafka' not found"
     return 1
   fi
   
   kafka_ready=$($OC get kafkas.ibmevents.ibm.com knative-eventing-kafka -n knative-eventing -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
   if [ "$kafka_ready" != "True" ]; then
-    echo "â Kafka cluster not ready (status: $kafka_ready)"
+    echo "❌ Kafka cluster not ready (status: $kafka_ready)"
     bad=1
   fi
   
@@ -2110,14 +2110,14 @@ check_kafka_cluster() {
     # ZooKeeper mode
     zk_pods=$($OC get pods -n knative-eventing -l ibmevents.ibm.com/cluster=knative-eventing-kafka,ibmevents.ibm.com/name=knative-eventing-kafka-zookeeper --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
     if [ "$zk_pods" -lt 3 ]; then
-      echo "â Kafka ZooKeeper mode: only $zk_pods/3 ZooKeeper pods running"
+      echo "❌ Kafka ZooKeeper mode: only $zk_pods/3 ZooKeeper pods running"
       bad=1
     fi
   else
     # KRaft mode
     nodepool_count=$($OC get kafkanodepools.ibmevents.ibm.com -n knative-eventing -l ibmevents.ibm.com/cluster=knative-eventing-kafka --no-headers 2>/dev/null | wc -l)
     if [ "$nodepool_count" -lt 2 ]; then
-      echo "â Kafka KRaft mode: only $nodepool_count/2 node pools found"
+      echo "❌ Kafka KRaft mode: only $nodepool_count/2 node pools found"
       bad=1
     fi
   fi
@@ -2126,18 +2126,18 @@ check_kafka_cluster() {
   [ "${DEBUG_MODE:-0}" -eq 1 ] && echo "    [DEBUG] Counting Kafka pods"
   kafka_pods=$($OC get pods -n knative-eventing -l ibmevents.ibm.com/cluster=knative-eventing-kafka --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
   if [ "$kafka_pods" -lt 3 ]; then
-    echo "â Only $kafka_pods/3 Kafka pods running"
+    echo "❌ Only $kafka_pods/3 Kafka pods running"
     bad=1
   fi
   
   # Check entity operator
   if ! $OC get deployment knative-eventing-kafka-entity-operator -n knative-eventing >/dev/null 2>&1; then
-    echo "â Kafka entity operator deployment not found"
+    echo "❌ Kafka entity operator deployment not found"
     bad=1
   else
     ready=$($OC get deployment knative-eventing-kafka-entity-operator -n knative-eventing -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
     if [ "$ready" = "0" ]; then
-      echo "â Kafka entity operator not ready"
+      echo "❌ Kafka entity operator not ready"
       bad=1
     fi
   fi
@@ -2150,19 +2150,19 @@ check_kafka_user_and_secret() {
   bad=0
   
   if ! $OC get kafkausers.ibmevents.ibm.com ke-kafka-user -n knative-eventing >/dev/null 2>&1; then
-    echo "â KafkaUser 'ke-kafka-user' not found"
+    echo "❌ KafkaUser 'ke-kafka-user' not found"
     bad=1
   else
     user_ready=$($OC get kafkausers.ibmevents.ibm.com ke-kafka-user -n knative-eventing -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
     if [ "$user_ready" != "True" ]; then
-      echo "â KafkaUser not ready (status: $user_ready)"
+      echo "❌ KafkaUser not ready (status: $user_ready)"
       bad=1
     fi
   fi
   
   secret_broken=0
   if ! $OC get secret ke-kafka-broker-secret -n knative-eventing >/dev/null 2>&1; then
-    echo "â Kafka broker secret 'ke-kafka-broker-secret' not found"
+    echo "❌ Kafka broker secret 'ke-kafka-broker-secret' not found"
     bad=1
     secret_broken=1
   else
@@ -2172,20 +2172,20 @@ check_kafka_user_and_secret() {
     has_user_key=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.user\.key}' 2>/dev/null || echo "")
 
     if [ -z "$has_ca" ] || [ -z "$has_user_crt" ] || [ -z "$has_user_key" ]; then
-      echo "â Kafka broker secret missing required keys (ca.crt, user.crt, user.key)"
+      echo "❌ Kafka broker secret missing required keys (ca.crt, user.crt, user.key)"
       bad=1
       secret_broken=1
     else
       # Verify certificates match the source secrets (detect stale certs)
       source_ca=$($OC get secret knative-eventing-kafka-cluster-ca-cert -n knative-eventing -o jsonpath="{.data['ca\.crt']}" 2>/dev/null || echo "")
       if [ -n "$source_ca" ] && [ "$has_ca" != "$source_ca" ]; then
-        echo "â ï¸  Kafka broker secret ca.crt does not match cluster CA cert (stale certificate)"
+        echo "⚠️  Kafka broker secret ca.crt does not match cluster CA cert (stale certificate)"
         secret_broken=1
         bad=1
       fi
       source_user_crt=$($OC get secret ke-kafka-user -n knative-eventing -o jsonpath="{.data['user\.crt']}" 2>/dev/null || echo "")
       if [ -n "$source_user_crt" ] && [ "$has_user_crt" != "$source_user_crt" ]; then
-        echo "â ï¸  Kafka broker secret user.crt does not match KafkaUser cert (stale certificate)"
+        echo "⚠️  Kafka broker secret user.crt does not match KafkaUser cert (stale certificate)"
         secret_broken=1
         bad=1
       fi
@@ -2200,7 +2200,7 @@ check_kafka_user_and_secret() {
     else
       fix_secret="n"
       echo
-      echo "  â±ï¸  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping secret fix..."
+      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping secret fix..."
     fi
     if [ "$fix_secret" = "y" ] || [ "$fix_secret" = "Y" ]; then
       export KAFKA_SECRET_FIX_ATTEMPTED=1
@@ -2210,7 +2210,7 @@ check_kafka_user_and_secret() {
       has_user_crt=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.user\.crt}' 2>/dev/null || echo "")
       has_user_key=$($OC get secret ke-kafka-broker-secret -n knative-eventing -o jsonpath='{.data.user\.key}' 2>/dev/null || echo "")
       if [ -n "$has_ca" ] && [ -n "$has_user_crt" ] && [ -n "$has_user_key" ]; then
-        echo "  â Kafka broker secret has been repaired"
+        echo "  ✅ Kafka broker secret has been repaired"
         bad=0
       fi
     fi
@@ -2224,26 +2224,26 @@ check_knative_kafka() {
   bad=0
   
   if ! $OC get knativekafkas.operator.serverless.openshift.io knative-kafka -n knative-eventing >/dev/null 2>&1; then
-    echo "â KnativeKafka CR 'knative-kafka' not found"
+    echo "❌ KnativeKafka CR 'knative-kafka' not found"
     return 1
   fi
   
   kk_ready=$($OC get knativekafkas.operator.serverless.openshift.io knative-kafka -n knative-eventing -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
   if [ "$kk_ready" != "True" ]; then
-    echo "â KnativeKafka not ready (status: $kk_ready)"
+    echo "❌ KnativeKafka not ready (status: $kk_ready)"
     bad=1
   fi
   
   # Check Knative Kafka deployments
   for dep in kafka-controller kafka-broker-receiver kafka-webhook-eventing; do
     if ! $OC get deployment "$dep" -n knative-eventing >/dev/null 2>&1; then
-      echo "â Knative Kafka deployment $dep not found"
+      echo "❌ Knative Kafka deployment $dep not found"
       bad=1
       continue
     fi
     ready=$($OC get deployment "$dep" -n knative-eventing -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
     if [ "$ready" = "0" ]; then
-      echo "â Knative Kafka deployment $dep not ready"
+      echo "❌ Knative Kafka deployment $dep not ready"
       bad=1
     fi
   done
@@ -2258,30 +2258,30 @@ fix_kafka_broker_secret() {
   local CA_SECRET="knative-eventing-kafka-cluster-ca-cert"
   
   echo
-  echo "  ð§ Fixing Kafka broker secret..."
+  echo "  🔧 Fixing Kafka broker secret..."
   echo
   
   # Check for jq dependency
   if ! command -v jq &> /dev/null; then
-    echo "  â Error: jq is not installed. Cannot fix Kafka broker secret."
-    echo "  â¹ï¸  Please install jq and try again, or manually update the secret."
+    echo "  ❌ Error: jq is not installed. Cannot fix Kafka broker secret."
+    echo "  ℹ️  Please install jq and try again, or manually update the secret."
     return 1
   fi
   
   # Check if required secrets exist
   if ! $OC get secret "$CA_SECRET" -n "$NAMESPACE" &>/dev/null; then
-    echo "  â Error: CA secret '$CA_SECRET' not found in namespace '$NAMESPACE'"
+    echo "  ❌ Error: CA secret '$CA_SECRET' not found in namespace '$NAMESPACE'"
     return 1
   fi
   
   if ! $OC get secret "$USER_SECRET" -n "$NAMESPACE" &>/dev/null; then
-    echo "  â Error: User secret '$USER_SECRET' not found in namespace '$NAMESPACE'"
+    echo "  ❌ Error: User secret '$USER_SECRET' not found in namespace '$NAMESPACE'"
     return 1
   fi
   
   # Create or update the broker secret
   if ! $OC get secret "$SECRET_NAME" -n "$NAMESPACE" &>/dev/null; then
-    echo "  ð Creating Kafka broker secret..."
+    echo "  📝 Creating Kafka broker secret..."
     cat <<EOF | $OC create -f - 2>/dev/null
 apiVersion: v1
 kind: Secret
@@ -2296,20 +2296,20 @@ data:
   user.key: U1NM
 EOF
     if [ $? -ne 0 ]; then
-      echo "  â Failed to create secret"
+      echo "  ❌ Failed to create secret"
       return 1
     fi
   else
-    echo "  â¹ï¸  Secret '$SECRET_NAME' already exists, updating values..."
+    echo "  ℹ️  Secret '$SECRET_NAME' already exists, updating values..."
   fi
   
   # Populate the secret values
-  echo "  ð Updating secret with correct certificates..."
+  echo "  📝 Updating secret with correct certificates..."
   
   # Get CA certificate data
   ca_cert_data=$($OC get secret "$CA_SECRET" -o jsonpath="{.data['ca\.crt']}" -n "$NAMESPACE" 2>/dev/null)
   if [ -z "$ca_cert_data" ]; then
-    echo "  â Failed to get CA certificate data"
+    echo "  ❌ Failed to get CA certificate data"
     return 1
   fi
   $OC get secret "$SECRET_NAME" -o json -n "$NAMESPACE" | jq --arg ca_cert "$ca_cert_data" '.data["ca.crt"]=$ca_cert' | $OC apply -f - >/dev/null 2>&1
@@ -2317,7 +2317,7 @@ EOF
   # Get user certificate data
   user_cert_data=$($OC get secret "$USER_SECRET" -o jsonpath="{.data['user\.crt']}" -n "$NAMESPACE" 2>/dev/null)
   if [ -z "$user_cert_data" ]; then
-    echo "  â Failed to get user certificate data"
+    echo "  ❌ Failed to get user certificate data"
     return 1
   fi
   $OC get secret "$SECRET_NAME" -o json -n "$NAMESPACE" | jq --arg user_cert "$user_cert_data" '.data["user.crt"]=$user_cert' | $OC apply -f - >/dev/null 2>&1
@@ -2325,13 +2325,13 @@ EOF
   # Get user key data
   user_key_data=$($OC get secret "$USER_SECRET" -o jsonpath="{.data['user\.key']}" -n "$NAMESPACE" 2>/dev/null)
   if [ -z "$user_key_data" ]; then
-    echo "  â Failed to get user key data"
+    echo "  ❌ Failed to get user key data"
     return 1
   fi
   $OC get secret "$SECRET_NAME" -o json -n "$NAMESPACE" | jq --arg user_key "$user_key_data" '.data["user.key"]=$user_key' | $OC apply -f - >/dev/null 2>&1
   
-  echo "  â Kafka broker secret has been successfully updated"
-  echo "  â¹ï¸  Kafka eventing deployments must be restarted to pick up the new certificates"
+  echo "  ✅ Kafka broker secret has been successfully updated"
+  echo "  ℹ️  Kafka eventing deployments must be restarted to pick up the new certificates"
   return 0
 }
 
@@ -2339,21 +2339,21 @@ EOF
 delete_brokers_and_triggers() {
   local OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
 
-  echo "  ðï¸  Deleting brokers starting with 'knative-wa-clu-broker'..."
+  echo "  🗑️  Deleting brokers starting with 'knative-wa-clu-broker'..."
   $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^knative-wa-clu-broker" | while read broker_name; do
     echo "     Deleting broker: $broker_name"
     $OCN delete broker "$broker_name" --wait=false 2>/dev/null || echo "     Failed to delete $broker_name"
   done
 
   echo
-  echo "  ðï¸  Deleting triggers starting with 'wo-wa-ke'..."
+  echo "  🗑️  Deleting triggers starting with 'wo-wa-ke'..."
   $OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null | awk '{print $1}' | grep "^wo-wa-ke" | while read trigger_name; do
     echo "     Deleting trigger: $trigger_name"
     $OCN delete trigger "$trigger_name" --wait=false 2>/dev/null || echo "     Failed to delete $trigger_name"
   done
 
   echo
-  echo "  â³ Waiting for brokers and triggers to be recreated by the WA operator..."
+  echo "  ⏳ Waiting for brokers and triggers to be recreated by the WA operator..."
 
   local max_wait=180  # 3 minutes
   local interval=15
@@ -2391,16 +2391,16 @@ delete_brokers_and_triggers() {
 
     if [ "$brokers_ready" -eq 1 ] && [ "$triggers_ready" -eq 1 ]; then
       echo
-      echo "  â Brokers and triggers have been recreated and are ready"
+      echo "  ✅ Brokers and triggers have been recreated and are ready"
       return 0
     fi
   done
 
   echo
-  echo "  â ï¸  Timed out after ${max_wait}s waiting for recreation. Current state:"
+  echo "  ⚠️  Timed out after ${max_wait}s waiting for recreation. Current state:"
   echo "     Brokers found: $broker_count (ready: $([ "$brokers_ready" -eq 1 ] && echo 'yes' || echo 'no'))"
   echo "     Triggers found: $trigger_count (ready: $([ "$triggers_ready" -eq 1 ] && echo 'yes' || echo 'no'))"
-  echo "  â¹ï¸  The WA operator may still be reconciling. Re-run the health check in a few minutes."
+  echo "  ℹ️  The WA operator may still be reconciling. Re-run the health check in a few minutes."
   return 1
 }
 
@@ -2412,23 +2412,23 @@ is_kafka_connectivity_error() {
 
 # Restart Kafka eventing deployments so they pick up updated secrets
 restart_kafka_eventing_deployments() {
-  echo "  ð Restarting Kafka eventing deployments in knative-eventing to pick up new certificates..."
+  echo "  🔄 Restarting Kafka eventing deployments in knative-eventing to pick up new certificates..."
   for dep in kafka-broker-receiver kafka-controller; do
     if $OC get deployment "$dep" -n knative-eventing >/dev/null 2>&1; then
       echo "     Restarting $dep..."
-      $OC rollout restart deployment "$dep" -n knative-eventing 2>/dev/null || echo "     â ï¸  Failed to restart $dep"
+      $OC rollout restart deployment "$dep" -n knative-eventing 2>/dev/null || echo "     ⚠️  Failed to restart $dep"
     fi
   done
 
-  echo "  â³ Waiting for rollout to complete..."
+  echo "  ⏳ Waiting for rollout to complete..."
   local rollout_ok=1
   for dep in kafka-broker-receiver kafka-controller; do
     if $OC get deployment "$dep" -n knative-eventing >/dev/null 2>&1; then
       if ! $OC rollout status deployment "$dep" -n knative-eventing --timeout=120s 2>/dev/null; then
-        echo "     â ï¸  Rollout of $dep did not complete within 120s"
+        echo "     ⚠️  Rollout of $dep did not complete within 120s"
         rollout_ok=0
       else
-        echo "     â $dep rollout complete"
+        echo "     ✅ $dep rollout complete"
       fi
     fi
   done
@@ -2442,7 +2442,7 @@ wait_for_brokers_ready() {
   local interval=15
   local elapsed=0
 
-  echo "  â³ Waiting up to ${max_wait}s for brokers to become ready..."
+  echo "  ⏳ Waiting up to ${max_wait}s for brokers to become ready..."
   while [ "$elapsed" -lt "$max_wait" ]; do
     sleep "$interval"
     elapsed=$((elapsed + interval))
@@ -2455,7 +2455,7 @@ wait_for_brokers_ready() {
     done | grep -q "not_ready" && all_ready=0
 
     if [ "$all_ready" -eq 1 ]; then
-      echo "     [${elapsed}s] â All brokers are ready"
+      echo "     [${elapsed}s] ✅ All brokers are ready"
       return 0
     fi
     echo "     [${elapsed}s] Brokers not ready yet..."
@@ -2472,8 +2472,8 @@ attempt_knative_fix() {
     return 0
   fi
 
-  echo "  â ï¸  Detected Kafka broker connectivity/authentication issue"
-  echo "  â¹ï¸  Fix strategy:"
+  echo "  ⚠️  Detected Kafka broker connectivity/authentication issue"
+  echo "  ℹ️  Fix strategy:"
   echo "     1. Repair broker secret certificates"
   echo "     2. Restart kafka-broker-receiver and kafka-controller to pick up new certs"
   echo "     3. If still failing, delete and recreate brokers/triggers"
@@ -2486,12 +2486,12 @@ attempt_knative_fix() {
   else
     fix_answer="n"
     echo
-    echo "  â±ï¸  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping fix..."
+    echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping fix..."
   fi
 
   if [ "$fix_answer" != "y" ] && [ "$fix_answer" != "Y" ]; then
     echo
-    echo "  â¹ï¸  Skipping automatic fix. You can manually run:"
+    echo "  ℹ️  Skipping automatic fix. You can manually run:"
     echo "     1. Fix broker secret: update ke-kafka-broker-secret in knative-eventing namespace"
     echo "     2. Restart deployments: oc rollout restart deployment kafka-broker-receiver kafka-controller -n knative-eventing"
     echo "     3. Delete/recreate brokers: oc delete broker -n $PROJECT_CPD_INST_OPERANDS knative-wa-clu-broker"
@@ -2505,7 +2505,7 @@ attempt_knative_fix() {
   echo
   echo "  Step 1/3: Fixing Kafka broker secret certificates..."
   if ! fix_kafka_broker_secret; then
-    echo "  â ï¸  Certificate fix failed, proceeding to Step 3 (delete/recreate)..."
+    echo "  ⚠️  Certificate fix failed, proceeding to Step 3 (delete/recreate)..."
     echo
     echo "  Step 3/3: Deleting and recreating brokers and triggers..."
     delete_brokers_and_triggers
@@ -2520,11 +2520,11 @@ attempt_knative_fix() {
   # Wait for brokers to recover with the new certs
   echo
   if wait_for_brokers_ready 120; then
-    echo "  â Certificate fix + restart resolved the issue"
+    echo "  ✅ Certificate fix + restart resolved the issue"
     return 0
   fi
 
-  echo "  â¹ï¸  Brokers still not ready after certificate fix and restart, proceeding to Step 3..."
+  echo "  ℹ️  Brokers still not ready after certificate fix and restart, proceeding to Step 3..."
 
   # Step 3: Delete and recreate brokers/triggers as last resort
   echo
@@ -2534,12 +2534,12 @@ attempt_knative_fix() {
 
 # Check for failing pods in knative-eventing and ibm-knative-events namespaces
 check_knative_eventing_pods() {
-  echo "â¶ Checking pods in knative-eventing and ibm-knative-events namespaces"
+  echo "▶ Checking pods in knative-eventing and ibm-knative-events namespaces"
 
   local bad_found=0
   for ns in knative-eventing ibm-knative-events; do
     if ! $OC get namespace "$ns" >/dev/null 2>&1; then
-      echo "  â¹ï¸  Namespace $ns not found, skipping"
+      echo "  ℹ️  Namespace $ns not found, skipping"
       continue
     fi
 
@@ -2572,7 +2572,7 @@ check_knative_eventing_pods() {
       # Pod is not healthy
       ns_bad=1
       bad_found=1
-      echo "  â [$ns] $name"
+      echo "  ❌ [$ns] $name"
       echo "     Ready: $ready  Status: $status  Restarts: ${restarts:-0}  Age: ${age:-?}"
 
       # Show reason for non-running pods
@@ -2593,7 +2593,7 @@ check_knative_eventing_pods() {
       # Print targeted fix instructions based on error type
       case "${message:-}${reason:-}" in
         *relabel*lsetxattr*|*relabel*read-only*)
-          echo "     Ã°Ä FIX (SELinux relabel on Ceph RBD): kubelet cannot relabel the CSI PVC."
+          echo "     ðĄ FIX (SELinux relabel on Ceph RBD): kubelet cannot relabel the CSI PVC."
           echo "        Pin the SELinux level on the StatefulSet to skip relabeling:"
           echo "          NS=$ns"
           echo "          MCS=\$(oc get namespace \$NS -o jsonpath='{.metadata.annotations.openshift\.io/sa\.scc\.mcs}')"
@@ -2602,13 +2602,13 @@ check_knative_eventing_pods() {
           echo "          oc -n \$NS delete pod $name --ignore-not-found"
           ;;
         *CrashLoopBackOff*|*back-off*restarting*)
-          echo "     Ã°Ä FIX (CrashLoopBackOff): Check logs for root cause:"
+          echo "     ðĄ FIX (CrashLoopBackOff): Check logs for root cause:"
           echo "          oc -n $ns logs $name --previous --tail=40"
           # Check if it is a Kafka JVM InternalError by peeking at previous logs
           jvm_err=$($OC -n "$ns" logs "$name" --previous --tail=10 2>/dev/null | grep -cE 'InternalError|unsafe memory' 2>/dev/null || true)
           jvm_err=$(printf '%s' "${jvm_err:-0}" | tr -d '[:space:]')
           if [ "${jvm_err:-0}" -gt 0 ] 2>/dev/null; then
-            echo "     Ã°Ä FIX (Kafka JVM InternalError - corrupted metadata log):"
+            echo "     ðĄ FIX (Kafka JVM InternalError - corrupted metadata log):"
             echo "        The __cluster_metadata log segment is corrupt. Wipe the PVC data dir:"
             pvc_name=$($OC -n "$ns" get pod "$name" -o jsonpath='{.spec.volumes[?(@.name=="data")].persistentVolumeClaim.claimName}' 2>/dev/null || echo "data-$name")
             echo "          # 1. Delete pod so PVC is unmounted"
@@ -2627,9 +2627,9 @@ check_knative_eventing_pods() {
     done < "$tmp_pods"
 
     if [ "$ns_bad" -eq 0 ] && [ "$ns_total" -gt 0 ]; then
-      echo "  â [$ns] All $ns_total pods healthy"
+      echo "  ✅ [$ns] All $ns_total pods healthy"
     elif [ "$ns_total" -eq 0 ]; then
-      echo "  â ï¸  [$ns] No pods found"
+      echo "  ⚠️  [$ns] No pods found"
     fi
     rm -f "$tmp_pods"
   done
@@ -2664,13 +2664,13 @@ check_knative_eventing_pods() {
 
 check_knative_brokers() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
-  echo "â¶ Checking Knative Brokers"
+  echo "▶ Checking Knative Brokers"
 
   tmp_brokers=`mktemp 2>/dev/null || echo "/tmp/wo_brokers.$$"`
   $OCN get brokers.eventing.knative.dev --no-headers 2>/dev/null > "$tmp_brokers" || :
 
   if [ ! -s "$tmp_brokers" ]; then
-    echo "â¹ï¸  No Knative Brokers found in namespace $PROJECT_CPD_INST_OPERANDS"
+    echo "ℹ️  No Knative Brokers found in namespace $PROJECT_CPD_INST_OPERANDS"
     rm -f "$tmp_brokers"
     return 0
   fi
@@ -2688,11 +2688,11 @@ check_knative_brokers() {
     ready_message=`$OCN get broker "$name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || :`
 
     if [ "${ready_status:-}" = "True" ]; then
-      echo "  â Broker: $name"
+      echo "  ✅ Broker: $name"
       echo "     URL: ${url:-N/A}"
       echo "     Status: Ready"
     else
-      echo "  â Broker: $name"
+      echo "  ❌ Broker: $name"
       echo "     URL: ${url:-N/A}"
       echo "     Status: ${ready_status:-Unknown}"
       echo "     Reason: ${ready_reason:-Unknown}"
@@ -2719,13 +2719,13 @@ check_knative_brokers() {
 
 check_knative_triggers() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
-  echo "â¶ Checking Knative Triggers"
+  echo "▶ Checking Knative Triggers"
   
   tmp_triggers=`mktemp 2>/dev/null || echo "/tmp/wo_triggers.$$"`
   $OCN get triggers.eventing.knative.dev --no-headers 2>/dev/null > "$tmp_triggers" || :
   
   if [ ! -s "$tmp_triggers" ]; then
-    echo "â¹ï¸  No Knative Triggers found in namespace $PROJECT_CPD_INST_OPERANDS"
+    echo "ℹ️  No Knative Triggers found in namespace $PROJECT_CPD_INST_OPERANDS"
     rm -f "$tmp_triggers"
     return 0
   fi
@@ -2748,12 +2748,12 @@ check_knative_triggers() {
     subscriber_status=`$OCN get trigger "$name" -o jsonpath='{.status.conditions[?(@.type=="SubscriberResolved")].status}' 2>/dev/null || :`
 
     if [ "${ready_status:-}" = "True" ]; then
-      echo "  â Trigger: $name"
+      echo "  ✅ Trigger: $name"
       echo "     Broker: ${broker:-N/A}"
       echo "     Subscriber: ${subscriber_uri:-N/A}"
       echo "     Status: Ready"
     else
-      echo "  â Trigger: $name"
+      echo "  ❌ Trigger: $name"
       echo "     Broker: ${broker:-N/A}"
       echo "     Subscriber: ${subscriber_uri:-N/A}"
       echo "     Ready Status: ${ready_status:-Unknown}"
@@ -2768,17 +2768,17 @@ check_knative_triggers() {
 
       # Print targeted fix hint for leadership election / InitializeOffset
       if echo "${ready_reason:-}${ready_message:-}" | grep -qiE 'InitializeOffset|leadership|no leader|initialize.*offset|topic.*offsets'; then
-        echo "     ð¡ FIX (Kafka partition leadership election in progress):"
-        echo "        Broker-1 is down â no partition leader until all 3 brokers are healthy."
+        echo "     💡 FIX (Kafka partition leadership election in progress):"
+        echo "        Broker-1 is down — no partition leader until all 3 brokers are healthy."
         echo "        Steps:"
-        echo "          1. Fix broker-1 (wipe corrupted PVC data dir) â see broker pod fix hints above"
+        echo "          1. Fix broker-1 (wipe corrupted PVC data dir) — see broker pod fix hints above"
         echo "          2. Once all 3 brokers are Running, triggers self-heal automatically"
         echo "          3. To force reconciliation after brokers recover:"
         echo "             oc -n $PROJECT_CPD_INST_OPERANDS annotate trigger $name reconcile=\$(date +%s) --overwrite"
       fi
       case "${ready_reason:-}${ready_message:-}" in
         *DISABLED_PATTERN*)
-          echo "     ð¡ FIX (Kafka partition leadership election in progress):"
+          echo "     💡 FIX (Kafka partition leadership election in progress):"
           echo "        This is caused by Kafka broker-1 being down (CrashLoopBackOff)."
           echo "        The partition has no leader until all 3 brokers are healthy."
           echo "        Steps:"
@@ -2813,7 +2813,7 @@ get_pod_logs() {
   log_dir="./pod_logs_$(date +%Y%m%d_%H%M%S)"
   mkdir -p "$log_dir"
   
-  echo "  ð Collecting logs for pod: $pod_name"
+  echo "  📝 Collecting logs for pod: $pod_name"
   
   # Get all containers in the pod
   containers=$($OCN get pod "$pod_name" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null)
@@ -2824,14 +2824,14 @@ get_pod_logs() {
     $OCN logs "$pod_name" -c "$container" --previous > "$log_dir/${pod_name}_${container}_previous.log" 2>/dev/null || :
   done
   
-  echo "  â Logs saved to: $log_dir"
+  echo "  ✅ Logs saved to: $log_dir"
 }
 
 get_last_errors() {
   pod_name="$1"
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   
-  echo "  ð Pod: $pod_name"
+  echo "  🔍 Pod: $pod_name"
   
   # Get all containers in the pod
   containers=$($OCN get pod "$pod_name" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null)
@@ -2857,22 +2857,22 @@ delete_pod() {
   pod_name="$1"
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   
-  echo "  ðï¸  Deleting pod: $pod_name"
+  echo "  🗑️  Deleting pod: $pod_name"
   
   # Try to delete pod, capture output and exit code
   delete_output=$($OCN delete pod "$pod_name" --grace-period=30 2>&1) || delete_exit_code=$?
   
   if [ "${delete_exit_code:-0}" -eq 0 ]; then
     echo "$delete_output"
-    echo "  â Pod deleted successfully"
+    echo "  ✅ Pod deleted successfully"
   else
     # Check if pod was already deleted (NotFound error)
     if echo "$delete_output" | grep -q "NotFound"; then
       echo "$delete_output"
-      echo "  â¹ï¸  Pod already deleted or not found (this is OK)"
+      echo "  ℹ️  Pod already deleted or not found (this is OK)"
     else
       echo "$delete_output"
-      echo "  â Failed to delete pod"
+      echo "  ❌ Failed to delete pod"
     fi
   fi
 }
@@ -2880,7 +2880,7 @@ list_recent_errors_all_pods() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   
   echo
-  echo "â¶ Recent Errors in All Orchestrate Pods"
+  echo "▶ Recent Errors in All Orchestrate Pods"
   echo
   echo "Select time period to check:"
   echo "1. Last 1 minute"
@@ -2901,7 +2901,7 @@ list_recent_errors_all_pods() {
     # Timeout or read not supported with -t
     time_choice=""
     echo
-    echo "â±ï¸  No input received within ${USER_INPUT_TIMEOUT} seconds, using default 5 minutes..."
+    echo "⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, using default 5 minutes..."
   fi
   
   # Determine time period
@@ -2963,7 +2963,7 @@ list_recent_errors_all_pods() {
       errors=$($OCN logs "$pod_name" -c "$container" --since="$time_period" 2>/dev/null | grep -iE "$error_patterns" | grep -vi '"level"[[:space:]]*:[[:space:]]*"info"' | grep -vE "$LOG_NOISE_REGEX" | tail -5 || true)
       
       if [ -n "$errors" ]; then
-        echo "  ð¦ Pod: $pod_name"
+        echo "  📦 Pod: $pod_name"
         echo "     Container: $container"
         
         # Check if pod has restarts and get termination reason
@@ -2974,7 +2974,7 @@ list_recent_errors_all_pods() {
           term_exit_code=$($OCN get pod "$pod_name" -o jsonpath='{.status.containerStatuses[?(@.name=="'"$container"'")].lastState.terminated.exitCode}' 2>/dev/null)
           
           if [ -n "$term_reason" ]; then
-            echo "     ð Restarts: $restarts | Terminated: $term_reason (exit code: ${term_exit_code:-unknown})"
+            echo "     🔄 Restarts: $restarts | Terminated: $term_reason (exit code: ${term_exit_code:-unknown})"
             if [ -n "$term_message" ]; then
               echo "        Message: $term_message"
             fi
@@ -2991,7 +2991,7 @@ list_recent_errors_all_pods() {
   done < "$tmp_pods"
   
   if [ "$error_found" -eq 0 ]; then
-    echo "  â No errors found in the last $time_desc"
+    echo "  ✅ No errors found in the last $time_desc"
   fi
   
   echo
@@ -3005,7 +3005,7 @@ check_and_fix_milvus_etcd() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
 
   echo
-  echo "â¶ Checking Milvus Etcd Health"
+  echo "▶ Checking Milvus Etcd Health"
   echo
 
   # --- Phase 1: Detect etcd pod with stale BoltDB file lock (unclean shutdown) ---
@@ -3019,7 +3019,7 @@ check_and_fix_milvus_etcd() {
   flock_pod=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-etcd" | grep -E "CrashLoopBackOff|Error|Init:CrashLoopBackOff" | awk '{print $1}' | head -1)
 
   if [ -z "$flock_pod" ]; then
-    # Also check pods that are Running but not ready (0/N) â the pre-CrashLoopBackOff state.
+    # Also check pods that are Running but not ready (0/N) — the pre-CrashLoopBackOff state.
     # The pod may have 0 restarts if it just started, or N restarts if it's been cycling.
     # Either way, if logs show the flock error, it needs recovery.
     flock_pod=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-etcd" | awk '$2 ~ /^0\// {print $1}' | head -1)
@@ -3035,19 +3035,19 @@ check_and_fix_milvus_etcd() {
   if [ -n "$flock_pod" ]; then
     pod_status=$($OCN get pod "$flock_pod" --no-headers 2>/dev/null | awk '{print $3}')
     restart_count=$($OCN get pod "$flock_pod" --no-headers 2>/dev/null | awk '{print $4}')
-    echo "  â Milvus etcd pod is unhealthy: $flock_pod (Status: $pod_status, Restarts: $restart_count)"
+    echo "  ❌ Milvus etcd pod is unhealthy: $flock_pod (Status: $pod_status, Restarts: $restart_count)"
     echo
 
     # Check logs for the stale BoltDB file lock signature
     etcd_logs=$($OCN logs "$flock_pod" --tail=100 2>/dev/null || true)
     flock_error=0
     if echo "$etcd_logs" | grep -q "db file is flocked by another process"; then
-      echo "  ð Root cause: Stale BoltDB file lock on etcd data directory"
+      echo "  🔍 Root cause: Stale BoltDB file lock on etcd data directory"
       echo "     The etcd data file /etcd/member/snap/db is locked by a previous unclean shutdown."
       echo "     etcd cannot acquire the lock, causing liveness probe timeouts and restart loops."
       flock_error=1
     else
-      echo "  ð Checking pod logs for known error patterns..."
+      echo "  🔍 Checking pod logs for known error patterns..."
       # Show last few log lines for diagnosis
       if [ -n "$etcd_logs" ]; then
         echo "     Recent logs:"
@@ -3060,11 +3060,11 @@ check_and_fix_milvus_etcd() {
     etcd_sts=$($OCN get statefulset --no-headers 2>/dev/null | grep "milvus-etcd" | awk '{print $1}' | head -1)
 
     if [ -z "$etcd_sts" ]; then
-      echo "  â ï¸  Cannot find Milvus etcd StatefulSet. Manual intervention required."
+      echo "  ⚠️  Cannot find Milvus etcd StatefulSet. Manual intervention required."
       return 1
     fi
 
-    echo "  ð¦ StatefulSet: $etcd_sts"
+    echo "  📦 StatefulSet: $etcd_sts"
     echo
     echo "  Recovery plan:"
     echo "     1. Scale down the etcd StatefulSet to 0"
@@ -3073,7 +3073,7 @@ check_and_fix_milvus_etcd() {
     echo "     4. Remove the sleep override and let etcd start fresh"
     echo "     5. Verify recovery"
     echo
-    echo "  â¹ï¸  Milvus uses etcd only for internal metadata. All vector data is in object"
+    echo "  ℹ️  Milvus uses etcd only for internal metadata. All vector data is in object"
     echo "     storage (MinIO/COS). Deleting /etcd/member causes etcd to reinitialize and"
     echo "     Milvus will repopulate its metadata on next startup. No data is lost."
     echo
@@ -3084,12 +3084,12 @@ check_and_fix_milvus_etcd() {
     else
       fix_flock="n"
       echo
-      echo "  â±ï¸  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping fix..."
+      echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping fix..."
     fi
 
     if [ "$fix_flock" != "y" ] && [ "$fix_flock" != "Y" ]; then
       echo
-      echo "  â¹ï¸  Skipping etcd flock fix. You can manually run these commands:"
+      echo "  ℹ️  Skipping etcd flock fix. You can manually run these commands:"
       echo "     1. Scale down:  oc -n $PROJECT_CPD_INST_OPERANDS scale statefulset $etcd_sts --replicas=0"
       echo "     2. Patch sleep: oc -n $PROJECT_CPD_INST_OPERANDS patch statefulset $etcd_sts --type=json -p='[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/command\",\"value\":[\"sh\",\"-c\",\"sleep 3600\"]}]'"
       echo "     3. Scale up:    oc -n $PROJECT_CPD_INST_OPERANDS scale statefulset $etcd_sts --replicas=1"
@@ -3100,82 +3100,82 @@ check_and_fix_milvus_etcd() {
     fi
 
     echo
-    echo "  ð§ Fixing Milvus etcd stale file lock..."
+    echo "  🔧 Fixing Milvus etcd stale file lock..."
     echo
 
     # Step 1: Scale down the etcd StatefulSet
-    echo "  1ï¸â£  Scaling down StatefulSet $etcd_sts to 0 replicas..."
+    echo "  1️⃣  Scaling down StatefulSet $etcd_sts to 0 replicas..."
     if $OCN scale statefulset "$etcd_sts" --replicas=0 2>&1; then
-      echo "  â Scaled down successfully"
+      echo "  ✅ Scaled down successfully"
     else
-      echo "  â Failed to scale down StatefulSet"
+      echo "  ❌ Failed to scale down StatefulSet"
       return 1
     fi
 
     # Wait for pod to terminate
-    echo "  â³ Waiting for pod to terminate..."
+    echo "  ⏳ Waiting for pod to terminate..."
     timeout=120
     start=$(date +%s)
     while $OCN get pod "$flock_pod" --no-headers 2>/dev/null | grep -q .; do
       sleep 5
       now=$(date +%s)
       if [ $((now - start)) -gt $timeout ]; then
-        echo "  â ï¸  Timeout waiting for pod to terminate, proceeding anyway..."
+        echo "  ⚠️  Timeout waiting for pod to terminate, proceeding anyway..."
         break
       fi
     done
-    echo "  â Pod terminated"
+    echo "  ✅ Pod terminated"
     echo
 
     # Step 2: Patch the StatefulSet to run sleep instead of etcd
-    echo "  2ï¸â£  Patching StatefulSet to run 'sleep' command..."
+    echo "  2️⃣  Patching StatefulSet to run 'sleep' command..."
     if $OCN patch statefulset "$etcd_sts" \
       --type=json \
       -p='[{"op":"add","path":"/spec/template/spec/containers/0/command","value":["sh","-c","sleep 3600"]}]' 2>&1; then
-      echo "  â Patched successfully"
+      echo "  ✅ Patched successfully"
     else
-      echo "  â Failed to patch StatefulSet"
+      echo "  ❌ Failed to patch StatefulSet"
       return 1
     fi
     echo
 
     # Step 3: Scale back up to 1 replica
-    echo "  3ï¸â£  Scaling StatefulSet back to 1 replica..."
+    echo "  3️⃣  Scaling StatefulSet back to 1 replica..."
     if $OCN scale statefulset "$etcd_sts" --replicas=1 2>&1; then
-      echo "  â Scaled up successfully"
+      echo "  ✅ Scaled up successfully"
     else
-      echo "  â Failed to scale up StatefulSet"
+      echo "  ❌ Failed to scale up StatefulSet"
       return 1
     fi
 
     # Wait for the sleep pod to be Running
-    echo "  â³ Waiting for sleep pod to reach Running state..."
+    echo "  ⏳ Waiting for sleep pod to reach Running state..."
     timeout=120
     start=$(date +%s)
     while true; do
       pod_status=$($OCN get pod "$flock_pod" --no-headers 2>/dev/null | awk '{print $3}')
       if [ "$pod_status" = "Running" ]; then
-        echo "  â Pod is Running (with sleep command)"
+        echo "  ✅ Pod is Running (with sleep command)"
         break
       fi
       sleep 5
       now=$(date +%s)
       if [ $((now - start)) -gt $timeout ]; then
-        echo "  â ï¸  Timeout waiting for pod to start. Current status: $pod_status"
-        echo "  â¹ï¸  You may need to check the pod manually."
+        echo "  ⚠️  Timeout waiting for pod to start. Current status: $pod_status"
+        echo "  ℹ️  You may need to check the pod manually."
         return 1
       fi
     done
     echo
 
     # Step 4: Delete the stale etcd member directory
-    echo "  4ï¸â£  Deleting stale etcd member directory..."
+    echo "  4️⃣  Deleting stale etcd member directory..."
     delete_output=$($OCN rsh "$flock_pod" sh -c "rm -rf /etcd/member && echo DONE" 2>&1)
     if echo "$delete_output" | grep -q "DONE"; then
-      echo "  â Deleted /etcd/member successfully"
+      echo "  ✅ Deleted /etcd/member successfully"
     else
-      echo "  â Failed to delete /etcd/member: $delete_output"
-      echo "  â¹ï¸  Attempting to restore original StatefulSet command before returning..."
+      echo "  ❌ Failed to delete /etcd/member: $delete_output"
+      echo "  ℹ️  Attempting to restore original StatefulSet command before returning..."
       $OCN patch statefulset "$etcd_sts" \
         --type=json \
         -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>/dev/null || true
@@ -3184,54 +3184,54 @@ check_and_fix_milvus_etcd() {
     echo
 
     # Step 5: Remove the sleep command override
-    echo "  5ï¸â£  Removing sleep command override from StatefulSet..."
+    echo "  5️⃣  Removing sleep command override from StatefulSet..."
     if $OCN patch statefulset "$etcd_sts" \
       --type=json \
       -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>&1; then
-      echo "  â Restored original etcd command"
+      echo "  ✅ Restored original etcd command"
     else
-      echo "  â Failed to remove sleep override"
+      echo "  ❌ Failed to remove sleep override"
       return 1
     fi
     echo
 
     # Step 6: Delete the pod to restart with the original etcd command
-    echo "  6ï¸â£  Deleting pod to restart with original etcd command..."
+    echo "  6️⃣  Deleting pod to restart with original etcd command..."
     $OCN delete pod "$flock_pod" 2>&1 || true
 
     # Wait for etcd pod to be ready
-    echo "  â³ Waiting for etcd pod to recover..."
+    echo "  ⏳ Waiting for etcd pod to recover..."
     timeout=180
     start=$(date +%s)
     while true; do
       ready=$($OCN get pod "$flock_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
       if [ "$ready" = "True" ]; then
-        echo "  â Etcd pod is Ready!"
+        echo "  ✅ Etcd pod is Ready!"
         break
       fi
       sleep 5
       now=$(date +%s)
       if [ $((now - start)) -gt $timeout ]; then
         pod_status=$($OCN get pod "$flock_pod" --no-headers 2>/dev/null | awk '{print $3}')
-        echo "  â ï¸  Timeout waiting for etcd pod to become ready. Current status: $pod_status"
-        echo "  â¹ï¸  Check pod status: oc -n $PROJECT_CPD_INST_OPERANDS get pod $flock_pod"
+        echo "  ⚠️  Timeout waiting for etcd pod to become ready. Current status: $pod_status"
+        echo "  ℹ️  Check pod status: oc -n $PROJECT_CPD_INST_OPERANDS get pod $flock_pod"
         return 1
       fi
     done
     echo
 
     # Step 7: Verify recovery via logs
-    echo "  7ï¸â£  Verifying recovery..."
+    echo "  7️⃣  Verifying recovery..."
     sleep 5
     recovery_logs=$($OCN logs "$flock_pod" --tail=20 2>/dev/null || true)
     if echo "$recovery_logs" | grep -q "ready to serve client requests"; then
-      echo "  â Milvus etcd stale lock recovery completed successfully!"
+      echo "  ✅ Milvus etcd stale lock recovery completed successfully!"
       echo "     etcd is serving client requests."
     elif echo "$recovery_logs" | grep -q "became leader"; then
-      echo "  â Milvus etcd stale lock recovery completed successfully!"
+      echo "  ✅ Milvus etcd stale lock recovery completed successfully!"
       echo "     etcd elected leader."
     else
-      echo "  â¹ï¸  etcd pod is Ready but could not confirm 'serving' in logs yet."
+      echo "  ℹ️  etcd pod is Ready but could not confirm 'serving' in logs yet."
       echo "     Recent logs:"
       echo "$recovery_logs" | tail -5 | sed 's/^/       /'
       echo "     Check again shortly: oc -n $PROJECT_CPD_INST_OPERANDS logs $flock_pod --tail=15"
@@ -3248,48 +3248,48 @@ check_and_fix_milvus_etcd() {
     # Check if any etcd pod exists at all (could be Pending, Unknown, etc.)
     any_etcd=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-etcd" | head -1)
     if [ -n "$any_etcd" ]; then
-      echo "  â ï¸  Milvus etcd pod exists but is not Running:"
+      echo "  ⚠️  Milvus etcd pod exists but is not Running:"
       echo "     $any_etcd"
-      echo "  â¹ï¸  Check pod events: oc -n $PROJECT_CPD_INST_OPERANDS describe pod $(echo "$any_etcd" | awk '{print $1}')"
+      echo "  ℹ️  Check pod events: oc -n $PROJECT_CPD_INST_OPERANDS describe pod $(echo "$any_etcd" | awk '{print $1}')"
     else
-      echo "  â¹ï¸  No Milvus etcd pod found"
+      echo "  ℹ️  No Milvus etcd pod found"
     fi
     return 0
   fi
 
-  echo "  ð¦ Found etcd pod: $etcd_pod"
+  echo "  📦 Found etcd pod: $etcd_pod"
   echo
 
-  echo "  ð Checking Milvus Etcd Database..."
+  echo "  🔍 Checking Milvus Etcd Database..."
   echo
 
   # Check for NOSPACE alarms in etcd pod itself
-  echo "  ð Checking etcd pod for NOSPACE alarms..."
+  echo "  🔍 Checking etcd pod for NOSPACE alarms..."
   space_error_found=0
 
   if $OCN logs "$etcd_pod" --tail=200 2>/dev/null | grep -q "ALARM NOSPACE"; then
-    echo "  â ï¸  Found 'ALARM NOSPACE' in etcd pod: $etcd_pod"
+    echo "  ⚠️  Found 'ALARM NOSPACE' in etcd pod: $etcd_pod"
     space_error_found=1
   fi
 
   # Check for database space exceeded errors in Milvus pods
-  echo "  ð Checking Milvus pods for 'database space exceeded' errors..."
+  echo "  🔍 Checking Milvus pods for 'database space exceeded' errors..."
   milvus_pods=$($OCN get pods --no-headers 2>/dev/null | grep "milvus-standalone" | awk '{print $1}')
 
   for pod in $milvus_pods; do
     if $OCN logs "$pod" --tail=100 2>/dev/null | grep -qE "database space exceeded|mvcc: database space exceeded"; then
-      echo "  â ï¸  Found 'database space exceeded' error in pod: $pod"
+      echo "  ⚠️  Found 'database space exceeded' error in pod: $pod"
       space_error_found=1
     fi
   done
 
   if [ "$space_error_found" -eq 0 ]; then
-    echo "  â No etcd issues found"
+    echo "  ✅ No etcd issues found"
     return 0
   fi
   
   echo
-  echo "  â Etcd database space exceeded detected!"
+  echo "  ❌ Etcd database space exceeded detected!"
   echo
   echo "  This requires compacting, defragmenting, and disarming the etcd database."
   echo
@@ -3302,12 +3302,12 @@ check_and_fix_milvus_etcd() {
     # Timeout or read not supported with -t
     fix_etcd="n"
     echo
-    echo "  â±ï¸  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping etcd fix..."
+    echo "  ⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping etcd fix..."
   fi
   
   if [ "$fix_etcd" != "y" ] && [ "$fix_etcd" != "Y" ]; then
     echo
-    echo "  â¹ï¸  Skipping etcd fix. You can manually run these commands:"
+    echo "  ℹ️  Skipping etcd fix. You can manually run these commands:"
     echo "     1. Get current revision: oc exec -n $PROJECT_CPD_INST_OPERANDS $etcd_pod -- sh -lc 'ETCDCTL_API=3 etcdctl endpoint status --write-out=json'"
     echo "     2. Compact: oc exec -n $PROJECT_CPD_INST_OPERANDS $etcd_pod -- sh -lc 'ETCDCTL_API=3 etcdctl compact <revision>'"
     echo "     3. Defrag: oc exec -n $PROJECT_CPD_INST_OPERANDS $etcd_pod -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s defrag'"
@@ -3316,14 +3316,14 @@ check_and_fix_milvus_etcd() {
   fi
   
   echo
-  echo "  ð§ Fixing etcd database space issue..."
+  echo "  🔧 Fixing etcd database space issue..."
   echo
-  echo "  â¹ï¸  When etcd has NOSPACE, defragmentation is the critical step."
-  echo "  â¹ï¸  Compaction may timeout but defrag should still work."
+  echo "  ℹ️  When etcd has NOSPACE, defragmentation is the critical step."
+  echo "  ℹ️  Compaction may timeout but defrag should still work."
   echo
   
   # Step 1: Get current revision and DB size info
-  echo "  1ï¸â£  Getting etcd status..."
+  echo "  1️⃣  Getting etcd status..."
   etcd_status_json=$($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl endpoint status --write-out=json' 2>/dev/null || true)
   revision=$(echo "$etcd_status_json" | jq -r '.[0].Status.header.revision' 2>/dev/null || true)
   db_size_bytes=$(echo "$etcd_status_json" | jq -r '.[0].Status.dbSize' 2>/dev/null || true)
@@ -3331,22 +3331,22 @@ check_and_fix_milvus_etcd() {
 
   skip_compact=false
   if [ -z "$revision" ] || [ "$revision" = "null" ]; then
-    echo "  â ï¸  Cannot get revision (etcd is unresponsive due to NOSPACE)"
-    echo "  â¹ï¸  Skipping compact step and going directly to defragmentation"
+    echo "  ⚠️  Cannot get revision (etcd is unresponsive due to NOSPACE)"
+    echo "  ℹ️  Skipping compact step and going directly to defragmentation"
     skip_compact=true
   else
     # Show revision with context
     db_size_mb=$(( ${db_size_bytes:-0} / 1024 / 1024 ))
     db_in_use_mb=$(( ${db_in_use_bytes:-0} / 1024 / 1024 ))
-    echo "  â Current revision: $revision"
+    echo "  ✅ Current revision: $revision"
     echo "     DB size: ${db_size_mb}MB | In-use: ${db_in_use_mb}MB | Quota: 2048MB (2GB)"
     if [ "$db_in_use_mb" -gt 0 ] && [ "$db_size_mb" -gt 0 ]; then
       reclaimable_mb=$((db_size_mb - db_in_use_mb))
       if [ "$reclaimable_mb" -lt 50 ]; then
-        echo "  â ï¸  Only ~${reclaimable_mb}MB reclaimable by defrag â data itself is near quota"
-        echo "  â¹ï¸  If defrag does not help, the script will offer to wipe and reinitialize etcd"
+        echo "  ⚠️  Only ~${reclaimable_mb}MB reclaimable by defrag — data itself is near quota"
+        echo "  ℹ️  If defrag does not help, the script will offer to wipe and reinitialize etcd"
       else
-        echo "  â¹ï¸  ~${reclaimable_mb}MB reclaimable by defragmentation"
+        echo "  ℹ️  ~${reclaimable_mb}MB reclaimable by defragmentation"
       fi
     fi
   fi
@@ -3354,35 +3354,35 @@ check_and_fix_milvus_etcd() {
   
   # Step 2: Compact (only if we got a valid revision)
   if [ "$skip_compact" = false ]; then
-    echo "  2ï¸â£  Compacting etcd database to revision $revision (timeout: 60s)..."
+    echo "  2️⃣  Compacting etcd database to revision $revision (timeout: 60s)..."
     compact_output=$($OCN exec "$etcd_pod" -- sh -lc "ETCDCTL_API=3 etcdctl --command-timeout=300s compact $revision" 2>&1)
     compact_exit=$?
     
     if [ $compact_exit -eq 0 ]; then
-      echo "  â Compaction completed successfully"
+      echo "  ✅ Compaction completed successfully"
     else
       # Check if it's just because revision is too high (which is OK)
       if echo "$compact_output" | grep -q "required revision has been compacted"; then
-        echo "  â Database already compacted (this is OK)"
+        echo "  ✅ Database already compacted (this is OK)"
       elif echo "$compact_output" | grep -q "context deadline exceeded"; then
-        echo "  â ï¸  Compaction timed out (etcd may be severely degraded)"
-        echo "  â¹ï¸  Proceeding with defragmentation - this is the critical step..."
+        echo "  ⚠️  Compaction timed out (etcd may be severely degraded)"
+        echo "  ℹ️  Proceeding with defragmentation - this is the critical step..."
       else
-        echo "  â ï¸  Compaction output: $compact_output"
-        echo "  â¹ï¸  Proceeding with defragmentation anyway..."
+        echo "  ⚠️  Compaction output: $compact_output"
+        echo "  ℹ️  Proceeding with defragmentation anyway..."
       fi
     fi
     echo
   else
-    echo "  2ï¸â£  Skipping compaction (etcd unresponsive)"
+    echo "  2️⃣  Skipping compaction (etcd unresponsive)"
     echo
   fi
   
   # Step 3: Defragment (with live size tracking and retry logic)
-  echo "  3ï¸â£  Defragmenting etcd database (this may take up to 5 minutes)..."
+  echo "  3️⃣  Defragmenting etcd database (this may take up to 5 minutes)..."
   
   # Get database size before defrag (try multiple paths)
-  echo "  ð Checking database size before defragmentation..."
+  echo "  📊 Checking database size before defragmentation..."
   db_size_before=$($OCN exec "$etcd_pod" -- sh -lc 'du -sh /etcd/member 2>/dev/null || du -sh /bitnami/etcd/data/member 2>/dev/null' 2>/dev/null | awk '{print $1}')
   db_file_before=$($OCN exec "$etcd_pod" -- sh -lc 'ls -lh /etcd/member/snap/db 2>/dev/null || ls -lh /bitnami/etcd/data/member/snap/db 2>/dev/null' 2>/dev/null | awk '{print $5}')
   
@@ -3403,12 +3403,12 @@ check_and_fix_milvus_etcd() {
   while [ $defrag_attempt -le $max_defrag_attempts ] && [ "$defrag_success" = false ]; do
     if [ $defrag_attempt -gt 1 ]; then
       echo
-      echo "  ð Retry attempt $defrag_attempt of $max_defrag_attempts..."
+      echo "  🔄 Retry attempt $defrag_attempt of $max_defrag_attempts..."
       sleep 5
     fi
     
     # Run defragmentation in background with progress monitoring
-    echo "  ð§ Running defragmentation with live progress monitoring (attempt $defrag_attempt/$max_defrag_attempts)..."
+    echo "  🔧 Running defragmentation with live progress monitoring (attempt $defrag_attempt/$max_defrag_attempts)..."
     
     # Create temp file for defrag output
     defrag_log=$(mktemp 2>/dev/null || echo "/tmp/defrag_log.$$")
@@ -3451,8 +3451,8 @@ check_and_fix_milvus_etcd() {
           # Check if defrag appears stuck
           if [ $no_change_count -ge $stuck_threshold ]; then
             echo
-            echo "  â ï¸  Defragmentation appears stuck (no file changes for ${no_change_count}0 seconds)"
-            echo "  â¹ï¸  This can happen when etcd is severely degraded due to NOSPACE"
+            echo "  ⚠️  Defragmentation appears stuck (no file changes for ${no_change_count}0 seconds)"
+            echo "  ℹ️  This can happen when etcd is severely degraded due to NOSPACE"
             echo
             printf "  Would you like to kill defrag and wipe/reinitialize etcd? (y/N) [auto-continue in 15s]: "
 
@@ -3461,93 +3461,93 @@ check_and_fix_milvus_etcd() {
             else
               restart_choice="n"
               echo
-              echo "  â±ï¸  No input received, continuing to wait for defrag..."
+              echo "  ⏱️  No input received, continuing to wait for defrag..."
             fi
 
             if [ "$restart_choice" = "y" ] || [ "$restart_choice" = "Y" ]; then
               echo
-              echo "  ð Killing stuck defrag process..."
+              echo "  🔄 Killing stuck defrag process..."
               kill $defrag_pid 2>/dev/null || true
               wait $defrag_pid 2>/dev/null || true
 
-              echo "  â¹ï¸  Defrag cannot help â data itself exceeds quota."
-              echo "  â¹ï¸  Wiping /etcd/member and reinitializing (Milvus will repopulate metadata)."
+              echo "  ℹ️  Defrag cannot help — data itself exceeds quota."
+              echo "  ℹ️  Wiping /etcd/member and reinitializing (Milvus will repopulate metadata)."
               echo
 
               # Get the StatefulSet name
               etcd_sts=$($OCN get statefulset --no-headers 2>/dev/null | grep "milvus-etcd" | awk '{print $1}' | head -1)
               if [ -z "$etcd_sts" ]; then
-                echo "  â Cannot find Milvus etcd StatefulSet"
+                echo "  ❌ Cannot find Milvus etcd StatefulSet"
                 return 1
               fi
 
-              echo "  1ï¸â£  Scaling down StatefulSet $etcd_sts to 0..."
+              echo "  1️⃣  Scaling down StatefulSet $etcd_sts to 0..."
               $OCN scale statefulset "$etcd_sts" --replicas=0 2>&1 || true
-              echo "  â³ Waiting for pod to terminate..."
+              echo "  ⏳ Waiting for pod to terminate..."
               timeout=120; start=$(date +%s)
               while $OCN get pod "$etcd_pod" --no-headers 2>/dev/null | grep -q .; do
                 sleep 5; now=$(date +%s)
-                [ $((now - start)) -gt $timeout ] && { echo "  â ï¸  Timeout, proceeding..."; break; }
+                [ $((now - start)) -gt $timeout ] && { echo "  ⚠️  Timeout, proceeding..."; break; }
               done
 
-              echo "  2ï¸â£  Patching StatefulSet to run sleep..."
+              echo "  2️⃣  Patching StatefulSet to run sleep..."
               $OCN patch statefulset "$etcd_sts" --type=json \
                 -p='[{"op":"add","path":"/spec/template/spec/containers/0/command","value":["sh","-c","sleep 3600"]}]' 2>&1 || true
 
-              echo "  3ï¸â£  Scaling back to 1..."
+              echo "  3️⃣  Scaling back to 1..."
               $OCN scale statefulset "$etcd_sts" --replicas=1 2>&1 || true
-              echo "  â³ Waiting for sleep pod..."
+              echo "  ⏳ Waiting for sleep pod..."
               timeout=120; start=$(date +%s)
               while true; do
                 ps=$($OCN get pod "$etcd_pod" --no-headers 2>/dev/null | awk '{print $3}')
                 [ "$ps" = "Running" ] && break
                 sleep 5; now=$(date +%s)
-                [ $((now - start)) -gt $timeout ] && { echo "  â ï¸  Timeout waiting for sleep pod"; return 1; }
+                [ $((now - start)) -gt $timeout ] && { echo "  ⚠️  Timeout waiting for sleep pod"; return 1; }
               done
 
-              echo "  4ï¸â£  Deleting /etcd/member..."
+              echo "  4️⃣  Deleting /etcd/member..."
               del_out=$($OCN rsh "$etcd_pod" sh -c "rm -rf /etcd/member && echo DONE" 2>&1)
               if ! echo "$del_out" | grep -q "DONE"; then
-                echo "  â Failed to delete /etcd/member: $del_out"
+                echo "  ❌ Failed to delete /etcd/member: $del_out"
                 $OCN patch statefulset "$etcd_sts" --type=json \
                   -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>/dev/null || true
                 return 1
               fi
-              echo "  â Deleted /etcd/member"
+              echo "  ✅ Deleted /etcd/member"
 
-              echo "  5ï¸â£  Removing sleep override..."
+              echo "  5️⃣  Removing sleep override..."
               $OCN patch statefulset "$etcd_sts" --type=json \
                 -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>&1 || true
 
-              echo "  6ï¸â£  Deleting pod to restart with fresh etcd..."
+              echo "  6️⃣  Deleting pod to restart with fresh etcd..."
               $OCN delete pod "$etcd_pod" 2>&1 || true
 
-              echo "  â³ Waiting for etcd pod to recover (up to 3 minutes)..."
+              echo "  ⏳ Waiting for etcd pod to recover (up to 3 minutes)..."
               timeout=180; start=$(date +%s)
               while true; do
                 ready=$($OCN get pod "$etcd_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
                 if [ "$ready" = "True" ]; then
-                  echo "  â Etcd pod is Ready!"
+                  echo "  ✅ Etcd pod is Ready!"
                   echo
                   sleep 5
                   rlogs=$($OCN logs "$etcd_pod" --tail=20 2>/dev/null || true)
                   if echo "$rlogs" | grep -q "ready to serve client requests"; then
-                    echo "  â etcd reinitialized and serving client requests"
+                    echo "  ✅ etcd reinitialized and serving client requests"
                   elif echo "$rlogs" | grep -q "became leader"; then
-                    echo "  â etcd reinitialized and elected leader"
+                    echo "  ✅ etcd reinitialized and elected leader"
                   fi
                   return 0
                 fi
                 sleep 5; now=$(date +%s)
                 if [ $((now - start)) -gt $timeout ]; then
                   ps=$($OCN get pod "$etcd_pod" --no-headers 2>/dev/null | awk '{print $3}')
-                  echo "  â ï¸  Timeout waiting for etcd. Current status: $ps"
-                  echo "  â¹ï¸  Check: oc -n $PROJECT_CPD_INST_OPERANDS get pod $etcd_pod"
+                  echo "  ⚠️  Timeout waiting for etcd. Current status: $ps"
+                  echo "  ℹ️  Check: oc -n $PROJECT_CPD_INST_OPERANDS get pod $etcd_pod"
                   return 1
                 fi
               done
             else
-              echo "  â¹ï¸  Continuing to wait for defrag to complete..."
+              echo "  ℹ️  Continuing to wait for defrag to complete..."
               no_change_count=0  # Reset counter to avoid repeated prompts
             fi
           fi
@@ -3564,7 +3564,7 @@ check_and_fix_milvus_etcd() {
     rm -f "$defrag_log"
     
     if [ $defrag_exit -eq 0 ]; then
-      echo "  â Defragmentation completed successfully"
+      echo "  ✅ Defragmentation completed successfully"
       defrag_success=true
       
       # Get final database size
@@ -3573,35 +3573,35 @@ check_and_fix_milvus_etcd() {
       db_file_after=$($OCN exec "$etcd_pod" -- sh -lc 'ls -lh /etcd/member/snap/db 2>/dev/null || ls -lh /bitnami/etcd/data/member/snap/db 2>/dev/null' 2>/dev/null | awk '{print $5}')
       
       if [ -n "$db_size_after" ]; then
-        echo "     ð Final database directory size: $db_size_after"
+        echo "     📊 Final database directory size: $db_size_after"
         if [ -n "$db_file_after" ]; then
-          echo "     ð Final database file size: $db_file_after"
+          echo "     📊 Final database file size: $db_file_after"
         fi
         if [ -n "$db_size_before" ]; then
-          echo "     â¨ Space reclaimed: $db_size_before â $db_size_after"
+          echo "     ✨ Space reclaimed: $db_size_before → $db_size_after"
           if [ -n "$db_file_before" ] && [ -n "$db_file_after" ]; then
-            echo "     â¨ File size change: $db_file_before â $db_file_after"
+            echo "     ✨ File size change: $db_file_before → $db_file_after"
           fi
         fi
       fi
     else
-      echo "  â Defragmentation failed (attempt $defrag_attempt/$max_defrag_attempts)"
+      echo "  ❌ Defragmentation failed (attempt $defrag_attempt/$max_defrag_attempts)"
       echo "     Output: $defrag_output"
       
       if [ $defrag_attempt -lt $max_defrag_attempts ]; then
-        echo "  â¹ï¸  Will retry defragmentation..."
+        echo "  ℹ️  Will retry defragmentation..."
       else
-        echo "  â All defragmentation attempts exhausted"
-        echo "  â¹ï¸  Defrag cannot reclaim space when the data itself exceeds the quota."
-        echo "  â¹ï¸  The only fix is to wipe /etcd/member and let Milvus reinitialize."
+        echo "  ❌ All defragmentation attempts exhausted"
+        echo "  ℹ️  Defrag cannot reclaim space when the data itself exceeds the quota."
+        echo "  ℹ️  The only fix is to wipe /etcd/member and let Milvus reinitialize."
         echo
         printf "  Would you like to wipe and reinitialize etcd now? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
         if read -t $USER_INPUT_TIMEOUT wipe_choice 2>/dev/null; then :; else wipe_choice="n"; echo; fi
         if [ "$wipe_choice" = "y" ] || [ "$wipe_choice" = "Y" ]; then
           # Reuse the same wipe procedure
           etcd_sts=$($OCN get statefulset --no-headers 2>/dev/null | grep "milvus-etcd" | awk '{print $1}' | head -1)
-          if [ -z "$etcd_sts" ]; then echo "  â Cannot find StatefulSet"; return 1; fi
-          echo "  ð§ Wiping and reinitializing etcd..."
+          if [ -z "$etcd_sts" ]; then echo "  ❌ Cannot find StatefulSet"; return 1; fi
+          echo "  🔧 Wiping and reinitializing etcd..."
           $OCN scale statefulset "$etcd_sts" --replicas=0 2>&1 || true
           timeout=120; start=$(date +%s)
           while $OCN get pod "$etcd_pod" --no-headers 2>/dev/null | grep -q .; do
@@ -3614,26 +3614,26 @@ check_and_fix_milvus_etcd() {
           while true; do
             ps=$($OCN get pod "$etcd_pod" --no-headers 2>/dev/null | awk '{print $3}')
             [ "$ps" = "Running" ] && break
-            sleep 5; now=$(date +%s); [ $((now - start)) -gt $timeout ] && { echo "  â ï¸  Timeout"; return 1; }
+            sleep 5; now=$(date +%s); [ $((now - start)) -gt $timeout ] && { echo "  ⚠️  Timeout"; return 1; }
           done
           del_out=$($OCN rsh "$etcd_pod" sh -c "rm -rf /etcd/member && echo DONE" 2>&1)
           if ! echo "$del_out" | grep -q "DONE"; then
-            echo "  â Failed: $del_out"
+            echo "  ❌ Failed: $del_out"
             $OCN patch statefulset "$etcd_sts" --type=json \
               -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>/dev/null || true
             return 1
           fi
-          echo "  â Deleted /etcd/member"
+          echo "  ✅ Deleted /etcd/member"
           $OCN patch statefulset "$etcd_sts" --type=json \
             -p='[{"op":"remove","path":"/spec/template/spec/containers/0/command"}]' 2>&1 || true
           $OCN delete pod "$etcd_pod" 2>&1 || true
-          echo "  â³ Waiting for etcd to recover (up to 3 minutes)..."
+          echo "  ⏳ Waiting for etcd to recover (up to 3 minutes)..."
           timeout=180; start=$(date +%s)
           while true; do
             ready=$($OCN get pod "$etcd_pod" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-            [ "$ready" = "True" ] && { echo "  â Etcd reinitialized and ready!"; return 0; }
+            [ "$ready" = "True" ] && { echo "  ✅ Etcd reinitialized and ready!"; return 0; }
             sleep 5; now=$(date +%s)
-            [ $((now - start)) -gt $timeout ] && { echo "  â ï¸  Timeout"; return 1; }
+            [ $((now - start)) -gt $timeout ] && { echo "  ⚠️  Timeout"; return 1; }
           done
         fi
         return 1
@@ -3644,22 +3644,22 @@ check_and_fix_milvus_etcd() {
   done
   
   if [ "$defrag_success" = false ]; then
-    echo "  â Defragmentation failed after $max_defrag_attempts attempts"
+    echo "  ❌ Defragmentation failed after $max_defrag_attempts attempts"
     return 1
   fi
   echo
   
   # Step 4: Disarm alarms
-  echo "  4ï¸â£  Disarming etcd alarms..."
+  echo "  4️⃣  Disarming etcd alarms..."
   if $OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s alarm disarm' 2>&1; then
-    echo "  â Alarms disarmed successfully"
+    echo "  ✅ Alarms disarmed successfully"
   else
-    echo "  â ï¸  Failed to disarm alarms or no alarms present"
+    echo "  ⚠️  Failed to disarm alarms or no alarms present"
   fi
   echo
   
-  echo "  â Etcd database space fix completed!"
-  echo "  â¹ï¸  You may need to delete the failing Milvus pod to restart it with the fixed etcd"
+  echo "  ✅ Etcd database space fix completed!"
+  echo "  ℹ️  You may need to delete the failing Milvus pod to restart it with the fixed etcd"
   echo
   
   return 0
@@ -3674,7 +3674,7 @@ handle_bad_pods() {
   fi
   
   echo
-  echo "â¶ Pod Remediation Options"
+  echo "▶ Pod Remediation Options"
   echo
   echo "1. List errors in failing pods only (no deletion)"
   echo "2. Delete failing pods immediately"
@@ -3693,7 +3693,7 @@ handle_bad_pods() {
     # Timeout or read not supported with -t
     choice="7"
     echo
-    echo "â±ï¸  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping remediation and continuing with health checks..."
+    echo "⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping remediation and continuing with health checks..."
   fi
   
   case "$choice" in
@@ -3769,7 +3769,7 @@ check_wo_pods_troubleshoot() {
   OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
   bad_found=0
   total_wo=0
-  echo "â¶ Checking Orchestrate pods"
+  echo "▶ Checking Orchestrate pods"
   tmp_list=`mktemp 2>/dev/null || echo "/tmp/wo_pods.$$"`
   tmp_bad=`mktemp 2>/dev/null || echo "/tmp/wo_bad.$$"`
   $OCN get pods --no-headers 2>/dev/null > "$tmp_list" || :
@@ -3792,12 +3792,12 @@ check_wo_pods_troubleshoot() {
   done < "$tmp_list"
 
   if [ "${total_wo:-0}" -eq 0 ]; then
-    echo "  â No pods found with prefix 'wo-' in namespace $PROJECT_CPD_INST_OPERANDS."
+    echo "  ❌ No pods found with prefix 'wo-' in namespace $PROJECT_CPD_INST_OPERANDS."
     rm -f "$tmp_list" "$tmp_bad"
     return 1
   fi
   if [ "${bad_found:-0}" -eq 0 ]; then
-    echo "  â All Orchestrate pods are healthy"
+    echo "  ✅ All Orchestrate pods are healthy"
     echo
     printf "Would you like to check pod logs anyway? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
     
@@ -3808,7 +3808,7 @@ check_wo_pods_troubleshoot() {
       # Timeout or read not supported with -t
       check_logs_response="n"
       echo
-      echo "â±ï¸  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping log check..."
+      echo "⏱️  No input received within ${USER_INPUT_TIMEOUT} seconds, skipping log check..."
     fi
     
     if [ "$check_logs_response" = "y" ] || [ "$check_logs_response" = "Y" ]; then
@@ -3818,7 +3818,7 @@ check_wo_pods_troubleshoot() {
     rm -f "$tmp_list" "$tmp_bad"
     return 0
   else
-    echo "  â Some pods are not healthy. Pods with issues:"
+    echo "  ❌ Some pods are not healthy. Pods with issues:"
     printf "%-55s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
     printf "%-55s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
     awk -F"\t" '{printf "%-55s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
@@ -3832,10 +3832,10 @@ check_wo_pods_troubleshoot() {
 }
 
 check_noobaa_pods() {
-  echo "â¶ Checking NooBaa pods in openshift-storage"
+  echo "▶ Checking NooBaa pods in openshift-storage"
 
   if ! $OC get namespace openshift-storage >/dev/null 2>&1; then
-    echo "  â¹ï¸  Namespace openshift-storage not found, skipping"
+    echo "  ℹ️  Namespace openshift-storage not found, skipping"
     return 0
   fi
 
@@ -3864,7 +3864,7 @@ check_noobaa_pods() {
     fi
 
     bad_found=1
-    echo "  â $name"
+    echo "  ❌ $name"
     echo "     Ready: $ready  Status: $status  Restarts: ${restarts:-0}  Age: ${age:-?}"
 
     # Show waiting reason
@@ -3886,12 +3886,12 @@ check_noobaa_pods() {
     case "$name" in noobaa-db-pg-cluster-*)
       recent_log=$($OC logs "$name" -n openshift-storage --tail=5 2>/dev/null || echo "")
       if echo "$recent_log" | grep -qi "low-disk space"; then
-        echo "     â ï¸  Detected low-disk space condition preventing Postgres startup"
-        echo "     â¹ï¸  WAL files may be accumulating. Consider deleting PVC and letting CNPG recreate the instance."
+        echo "     ⚠️  Detected low-disk space condition preventing Postgres startup"
+        echo "     ℹ️  WAL files may be accumulating. Consider deleting PVC and letting CNPG recreate the instance."
       elif echo "$recent_log" | grep -qi "read-only file system"; then
-        echo "     â ï¸  Detected read-only filesystem on pgdata volume"
+        echo "     ⚠️  Detected read-only filesystem on pgdata volume"
       elif echo "$recent_log" | grep -qi "startup probe failing"; then
-        echo "     â ï¸  Postgres startup probe failing â could not establish connection"
+        echo "     ⚠️  Postgres startup probe failing — could not establish connection"
       fi
       ;;
     esac
@@ -3903,22 +3903,22 @@ check_noobaa_pods() {
     cluster_ready=$($OC get cluster.postgresql.cnpg.noobaa.io noobaa-db-pg-cluster -n openshift-storage -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
     if [ "$cluster_ready" != "True" ]; then
       cluster_msg=$($OC get cluster.postgresql.cnpg.noobaa.io noobaa-db-pg-cluster -n openshift-storage -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
-      echo "  â NooBaa CNPG Cluster not ready: ${cluster_msg:-Unknown}"
+      echo "  ❌ NooBaa CNPG Cluster not ready: ${cluster_msg:-Unknown}"
       bad_found=1
     else
-      echo "  â NooBaa CNPG Cluster is ready"
+      echo "  ✅ NooBaa CNPG Cluster is ready"
     fi
   fi
 
   if [ "$bad_found" -eq 0 ] && [ "$total" -gt 0 ]; then
-    echo "  â All $total NooBaa pods healthy"
+    echo "  ✅ All $total NooBaa pods healthy"
   elif [ "$total" -eq 0 ]; then
-    echo "  â ï¸  No NooBaa pods found in openshift-storage"
+    echo "  ⚠️  No NooBaa pods found in openshift-storage"
   fi
 
   rm -f "$tmp_pods"
 
-  # Check NooBaa CR phase and backing store â a stuck noobaa-core causes tf- pods to fail
+  # Check NooBaa CR phase and backing store — a stuck noobaa-core causes tf- pods to fail
   # with S3 timeout/500 errors in the model-upload init container.
   local noobaa_phase backing_phase noobaa_needs_fix
   noobaa_phase=$($OC get noobaa noobaa -n openshift-storage -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
@@ -3926,12 +3926,12 @@ check_noobaa_pods() {
   noobaa_needs_fix=0
 
   if [ -n "$noobaa_phase" ] && [ "$noobaa_phase" != "Ready" ]; then
-    echo "  â ï¸  NooBaa CR phase: $noobaa_phase (expected: Ready)"
+    echo "  ⚠️  NooBaa CR phase: $noobaa_phase (expected: Ready)"
     noobaa_needs_fix=1
     bad_found=1
   fi
   if [ -n "$backing_phase" ] && [ "$backing_phase" != "Ready" ]; then
-    echo "  â ï¸  NooBaa backing store phase: $backing_phase (expected: Ready)"
+    echo "  ⚠️  NooBaa backing store phase: $backing_phase (expected: Ready)"
     echo "     This causes tf- (watson-assistant tensorflow) init containers to fail"
     echo "     with S3 timeout or 500 errors in the model-upload init container."
     noobaa_needs_fix=1
@@ -3940,17 +3940,17 @@ check_noobaa_pods() {
 
   if [ "$noobaa_needs_fix" -eq 1 ]; then
     echo
-    echo "  â¹ï¸  Fix: rolling restart noobaa-core StatefulSet (resets stale system-store state)"
-    echo "  â ï¸  WARNING: Only apply this fix on new/fresh installs where NooBaa is not yet"
+    echo "  ℹ️  Fix: rolling restart noobaa-core StatefulSet (resets stale system-store state)"
+    echo "  ⚠️  WARNING: Only apply this fix on new/fresh installs where NooBaa is not yet"
     echo "     serving production traffic. Restarting noobaa-core will cause a brief"
     echo "     disruption to all NooBaa S3 object storage operations."
     printf "  Apply fix now? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
     local user_fix_choice=""
     if read -r -t "${USER_INPUT_TIMEOUT:-10}" user_fix_choice 2>/dev/null; then :; else user_fix_choice="n"; fi
     case "$user_fix_choice" in [yY]*)
-      echo "  â¶ Rolling restart noobaa-core..."
+      echo "  ▶ Rolling restart noobaa-core..."
       $OC rollout restart statefulset/noobaa-core -n openshift-storage 2>/dev/null || :
-      echo "  â³ Waiting for noobaa-core rollout to complete (up to 3m)..."
+      echo "  ⏳ Waiting for noobaa-core rollout to complete (up to 3m)..."
       $OC rollout status statefulset/noobaa-core -n openshift-storage --timeout=180s 2>/dev/null || :
 
       # Re-check NooBaa phase after restart
@@ -3959,16 +3959,16 @@ check_noobaa_pods() {
         noobaa_phase=$($OC get noobaa noobaa -n openshift-storage -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         backing_phase=$($OC get backingstores noobaa-default-backing-store -n openshift-storage -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
         if [ "$noobaa_phase" = "Ready" ] && [ "$backing_phase" = "Ready" ]; then
-          echo "  â NooBaa is Ready, backing store is Ready"
+          echo "  ✅ NooBaa is Ready, backing store is Ready"
           break
         fi
         retries=$((retries + 1))
-        echo "  â³ Waiting for NooBaa to become Ready (attempt $retries/18)..."
+        echo "  ⏳ Waiting for NooBaa to become Ready (attempt $retries/18)..."
         sleep 10
       done
 
       if [ "$noobaa_phase" != "Ready" ] || [ "$backing_phase" != "Ready" ]; then
-        echo "  â ï¸  NooBaa did not reach Ready state after restart (phase=$noobaa_phase, backing=$backing_phase)"
+        echo "  ⚠️  NooBaa did not reach Ready state after restart (phase=$noobaa_phase, backing=$backing_phase)"
         echo "     Manual investigation may be needed."
       else
         # Delete tf- pods stuck in Init:CrashLoopBackOff so they retry immediately
@@ -3977,30 +3977,30 @@ check_noobaa_pods() {
           stuck_tf=$($OC get pods -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null \
             | awk '$1 ~ /^tf-/ && ($3 == "Init:CrashLoopBackOff" || $3 ~ /^Init:/) {print $1}')
           if [ -n "$stuck_tf" ]; then
-            echo "  â¶ Deleting stuck tf- pods to force immediate retry..."
+            echo "  ▶ Deleting stuck tf- pods to force immediate retry..."
             echo "$stuck_tf" | while read -r pod_name; do
               $OC delete pod "$pod_name" -n "$PROJECT_CPD_INST_OPERANDS" 2>/dev/null && \
                 echo "     Deleted $pod_name" || :
             done
           else
-            echo "  â¹ï¸  No stuck tf- pods found in $PROJECT_CPD_INST_OPERANDS"
+            echo "  ℹ️  No stuck tf- pods found in $PROJECT_CPD_INST_OPERANDS"
           fi
         fi
       fi
       ;;
     esac
   elif [ -n "$noobaa_phase" ]; then
-    echo "  â NooBaa CR: $noobaa_phase, backing store: $backing_phase"
+    echo "  ✅ NooBaa CR: $noobaa_phase, backing store: $backing_phase"
   fi
 
   [ "$bad_found" -eq 0 ] && return 0 || return 1
 }
 
 check_and_fix_wo_postgres() {
-  echo "â¶ Checking WO Postgres clusters (wo-wa-postgres, wo-watson-orchestrate-postgresedb)"
+  echo "▶ Checking WO Postgres clusters (wo-wa-postgres, wo-watson-orchestrate-postgresedb)"
   local OCN="$OC -n $PROJECT_CPD_INST_OPERANDS"
 
-  # Find all WO postgres CNPG cluster CRs â avoid | while pipe subshell by using a tmp file
+  # Find all WO postgres CNPG cluster CRs — avoid | while pipe subshell by using a tmp file
   local tmp_clusters
   tmp_clusters=$(mktemp 2>/dev/null || echo "/tmp/wo_pg_clusters.$$")
   $OCN get clusters.postgresql.k8s.enterprisedb.io --no-headers 2>/dev/null \
@@ -4008,7 +4008,7 @@ check_and_fix_wo_postgres() {
     > "$tmp_clusters" || :
 
   if [ ! -s "$tmp_clusters" ]; then
-    echo "  â¹ï¸  No WO Postgres CNPG clusters found in $PROJECT_CPD_INST_OPERANDS"
+    echo "  ℹ️  No WO Postgres CNPG clusters found in $PROJECT_CPD_INST_OPERANDS"
     rm -f "$tmp_clusters"
     return 0
   fi
@@ -4031,7 +4031,7 @@ check_and_fix_wo_postgres() {
 
     # If all instances ready, nothing to do
     if [ "$ready" = "$instances" ] && echo "$phase" | grep -qi "healthy"; then
-      echo "  â All instances healthy"
+      echo "  ✅ All instances healthy"
       continue
     fi
 
@@ -4043,7 +4043,7 @@ check_and_fix_wo_postgres() {
       if [ "$primary_status" = "Running" ]; then
         primary_ok=1
       else
-        echo "  â Primary pod $primary is not Running (status=$primary_status) â skipping auto-fix"
+        echo "  ❌ Primary pod $primary is not Running (status=$primary_status) — skipping auto-fix"
       fi
     fi
 
@@ -4060,11 +4060,11 @@ check_and_fix_wo_postgres() {
     fi
 
     if [ -z "$instance_names" ]; then
-      echo "  â ï¸  Could not determine instance pod names for cluster $cluster"
+      echo "  ⚠️  Could not determine instance pod names for cluster $cluster"
       continue
     fi
 
-    # Check each instance pod â skip primary and healthy pods, fix bad secondaries
+    # Check each instance pod — skip primary and healthy pods, fix bad secondaries
     # Use a tmp file to avoid another pipe subshell
     local tmp_instances
     tmp_instances=$(mktemp 2>/dev/null || echo "/tmp/wo_pg_inst.$$")
@@ -4087,28 +4087,28 @@ check_and_fix_wo_postgres() {
         tot=$(echo "$pod_ready" | awk -F/ '{print $2}')
         [ "$cur" = "$tot" ] && [ -n "$tot" ] && continue
       fi
-      # Skip Completed pods â those are init/job pods, not instance pods
+      # Skip Completed pods — those are init/job pods, not instance pods
       [ "$pod_status" = "Completed" ] && continue
 
-      echo "  â Secondary pod $pod_name  ready=$pod_ready  status=$pod_status"
+      echo "  ❌ Secondary pod $pod_name  ready=$pod_ready  status=$pod_status"
 
       if [ "$primary_ok" -eq 0 ]; then
-        echo "     â ï¸  Skipping fix â primary is not healthy"
+        echo "     ⚠️  Skipping fix — primary is not healthy"
         continue
       fi
 
       # Step 1: delete pod to trigger a restart
       echo
-      echo "  â¹ï¸  Fix step 1: delete pod $pod_name to trigger a restart"
+      echo "  ℹ️  Fix step 1: delete pod $pod_name to trigger a restart"
       printf "  Apply? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
       local choice1=""
       if read -r -t "${USER_INPUT_TIMEOUT:-20}" choice1 </dev/tty 2>/dev/null; then :; else choice1="n"; fi
       case "$choice1" in [yY]*)
         if ! $OCN delete pod "$pod_name" 2>/dev/null; then
-          echo "  â Failed to delete pod $pod_name"
+          echo "  ❌ Failed to delete pod $pod_name"
           continue
         fi
-        echo "  â¶ Pod $pod_name deleted, waiting up to 3m for recovery..."
+        echo "  ▶ Pod $pod_name deleted, waiting up to 3m for recovery..."
 
         local retries=0 recovered=0
         while [ $retries -lt 18 ]; do
@@ -4120,17 +4120,17 @@ check_and_fix_wo_postgres() {
           new_cur=$(echo "$new_ready" | awk -F/ '{print $1}')
           new_tot=$(echo "$new_ready" | awk -F/ '{print $2}')
           if [ "$new_status" = "Running" ] && [ "$new_cur" = "$new_tot" ] && [ -n "$new_tot" ]; then
-            echo "  â Pod $pod_name recovered ($new_ready Running)"
+            echo "  ✅ Pod $pod_name recovered ($new_ready Running)"
             recovered=1
             break
           fi
-          echo "  â³ $pod_name: status=$new_status ready=$new_ready (attempt $retries/18)"
+          echo "  ⏳ $pod_name: status=$new_status ready=$new_ready (attempt $retries/18)"
         done
 
         [ "$recovered" -eq 1 ] && continue
 
-        # Pod did not recover in 3m â ask whether to keep waiting or move on
-        echo "  â ï¸  Pod $pod_name did not recover after 3 minutes."
+        # Pod did not recover in 3m — ask whether to keep waiting or move on
+        echo "  ⚠️  Pod $pod_name did not recover after 3 minutes."
         echo
         local keep_waiting=1
         while [ "$keep_waiting" -eq 1 ]; do
@@ -4138,7 +4138,7 @@ check_and_fix_wo_postgres() {
           local wait_choice=""
           if read -r -t 20 wait_choice </dev/tty 2>/dev/null; then :; else wait_choice="n"; fi
           case "$wait_choice" in [yY]*)
-            echo "  â³ Waiting another 3m for $pod_name..."
+            echo "  ⏳ Waiting another 3m for $pod_name..."
             retries=0
             recovered=0
             while [ $retries -lt 18 ]; do
@@ -4149,16 +4149,16 @@ check_and_fix_wo_postgres() {
               new_cur=$(echo "$new_ready" | awk -F/ '{print $1}')
               new_tot=$(echo "$new_ready" | awk -F/ '{print $2}')
               if [ "$new_status" = "Running" ] && [ "$new_cur" = "$new_tot" ] && [ -n "$new_tot" ]; then
-                echo "  â Pod $pod_name recovered ($new_ready Running)"
+                echo "  ✅ Pod $pod_name recovered ($new_ready Running)"
                 recovered=1
                 break
               fi
-              echo "  â³ $pod_name: status=$new_status ready=$new_ready (attempt $retries/18)"
+              echo "  ⏳ $pod_name: status=$new_status ready=$new_ready (attempt $retries/18)"
             done
             if [ "$recovered" -eq 1 ]; then
               keep_waiting=0
             else
-              echo "  â ï¸  Still not healthy."
+              echo "  ⚠️  Still not healthy."
             fi
             ;;
           *)
@@ -4169,31 +4169,31 @@ check_and_fix_wo_postgres() {
 
         [ "$recovered" -eq 1 ] && continue
 
-        # Step 2: pod did not recover â delete pod + PVC together
-        echo "  â ï¸  Pod did not recover â proceeding to next fix option."
+        # Step 2: pod did not recover — delete pod + PVC together
+        echo "  ⚠️  Pod did not recover — proceeding to next fix option."
         echo
         local pvc_name="$pod_name"  # CNPG PVC is named same as the pod
-        echo "  â¹ï¸  Fix step 2: delete pod and PVC $pvc_name so CNPG recreates the instance from scratch"
+        echo "  ℹ️  Fix step 2: delete pod and PVC $pvc_name so CNPG recreates the instance from scratch"
         printf "  Apply? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
         local choice2=""
         if read -r -t "${USER_INPUT_TIMEOUT:-20}" choice2 </dev/tty 2>/dev/null; then :; else choice2="n"; fi
         case "$choice2" in [yY]*)
           $OCN delete pod "$pod_name" --wait=false 2>/dev/null || :
           if $OCN delete pvc "$pvc_name" 2>/dev/null; then
-            echo "  â¶ Pod $pod_name and PVC $pvc_name deleted â CNPG will recreate the instance"
+            echo "  ▶ Pod $pod_name and PVC $pvc_name deleted — CNPG will recreate the instance"
           else
-            echo "  â Failed to delete PVC â run manually:"
+            echo "  ❌ Failed to delete PVC — run manually:"
             echo "     oc delete pod $pod_name pvc $pvc_name -n $PROJECT_CPD_INST_OPERANDS"
           fi
           ;;
         *)
-          echo "  â¹ï¸  Skipped. To fix manually:"
+          echo "  ℹ️  Skipped. To fix manually:"
           echo "     oc delete pod $pod_name pvc $pvc_name -n $PROJECT_CPD_INST_OPERANDS"
           ;;
         esac
         ;;
       *)
-        echo "  â¹ï¸  Skipped. To fix manually:"
+        echo "  ℹ️  Skipped. To fix manually:"
         echo "     oc delete pod $pod_name -n $PROJECT_CPD_INST_OPERANDS"
         ;;
       esac
@@ -4206,7 +4206,7 @@ check_and_fix_wo_postgres() {
 
 run_troubleshoot_mode() {
   echo
-  echo "â¶ Troubleshoot Mode"
+  echo "▶ Troubleshoot Mode"
   echo
   
   # Check operators first
@@ -4241,31 +4241,31 @@ run_troubleshoot_mode() {
     echo
     
     # Check Knative Eventing Infrastructure
-    echo "â¶ Checking Knative Eventing Infrastructure"
+    echo "▶ Checking Knative Eventing Infrastructure"
     if check_knative_eventing_deployment; then
-      echo "  â All Knative Eventing deployment checks passed (OpenShift Serverless + Knative Eventing)"
+      echo "  ✅ All Knative Eventing deployment checks passed (OpenShift Serverless + Knative Eventing)"
     else
-      echo "  â ï¸  Some Knative Eventing deployment checks failed (see details above)"
+      echo "  ⚠️  Some Knative Eventing deployment checks failed (see details above)"
     fi
     if check_ibm_events_operator; then
-      echo "  â IBM Events Operator deployment is ready"
+      echo "  ✅ IBM Events Operator deployment is ready"
     else
-      echo "  â ï¸  IBM Events Operator checks failed (see details above)"
+      echo "  ⚠️  IBM Events Operator checks failed (see details above)"
     fi
     if check_kafka_cluster; then
-      echo "  â Kafka cluster is ready (CR, pods, entity operator)"
+      echo "  ✅ Kafka cluster is ready (CR, pods, entity operator)"
     else
-      echo "  â ï¸  Some Kafka cluster checks failed (see details above)"
+      echo "  ⚠️  Some Kafka cluster checks failed (see details above)"
     fi
     if check_kafka_user_and_secret; then
-      echo "  â Kafka user (ke-kafka-user) and broker secret (ke-kafka-broker-secret) are ready"
+      echo "  ✅ Kafka user (ke-kafka-user) and broker secret (ke-kafka-broker-secret) are ready"
     else
-      echo "  â ï¸  Kafka user or broker secret checks failed (see details above)"
+      echo "  ⚠️  Kafka user or broker secret checks failed (see details above)"
     fi
     if check_knative_kafka; then
-      echo "  â KnativeKafka CR and deployments are ready"
+      echo "  ✅ KnativeKafka CR and deployments are ready"
     else
-      echo "  â ï¸  Some Knative Kafka checks failed (see details above)"
+      echo "  ⚠️  Some Knative Kafka checks failed (see details above)"
     fi
     echo
 
@@ -4288,7 +4288,7 @@ run_troubleshoot_mode() {
       wa_progress=`$OC -n $PROJECT_CPD_INST_OPERANDS get wa "$wa_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
       
       if [ "$wa_ready" != "True" ] || [ "$wa_status" != "Completed" ] || [ "$wa_progress" != "100%" ]; then
-        echo "â¶ Watson Assistant CR shows issues - checking operator verification"
+        echo "▶ Watson Assistant CR shows issues - checking operator verification"
         check_wa_operator_verification
       fi
     fi
@@ -4311,7 +4311,7 @@ check_openshift_storage_pods() {
   local ns="openshift-storage"
   bad_found=0
   total=0
-  echo "â¶ Checking pods in namespace $ns"
+  echo "▶ Checking pods in namespace $ns"
   tmp_list=`mktemp 2>/dev/null || echo "/tmp/storage_pods.$"`
   tmp_bad=`mktemp  2>/dev/null || echo "/tmp/storage_bad.$"`
   $OC -n "$ns" get pods --no-headers 2>/dev/null > "$tmp_list" || :
@@ -4335,16 +4335,16 @@ check_openshift_storage_pods() {
   done < "$tmp_list"
 
   if [ "${total:-0}" -eq 0 ]; then
-    echo "  â¹ï¸  No pods found in namespace $ns (namespace may not exist or no access)"
+    echo "  ℹ️  No pods found in namespace $ns (namespace may not exist or no access)"
     rm -f "$tmp_list" "$tmp_bad"
     return 0
   fi
   if [ "${bad_found:-0}" -eq 0 ]; then
-    echo "  â All pods in $ns are healthy ($total pods checked)"
+    echo "  ✅ All pods in $ns are healthy ($total pods checked)"
     rm -f "$tmp_list" "$tmp_bad"
     return 0
   else
-    echo "  â Some pods in $ns are not healthy:"
+    echo "  ❌ Some pods in $ns are not healthy:"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "NAME" "READY" "STATUS" "RESTARTS" "AGE"
     printf "%-60s %-8s %-22s %-10s %-10s\n" "----" "-----" "------" "--------" "---"
     awk -F"\t" '{printf "%-60s %-8s %-22s %-10s %-10s\n",$1,$2,$3,$4,$5}' "$tmp_bad"
@@ -4395,7 +4395,7 @@ run_health_checks() {
       if is_docproc_enabled_in_wo; then
         docproc_ok=1; if check_docproc; then docproc_ok=0; fi
       else
-        echo "  â¹ï¸ DocumentProcessing not enabled in wo CR, skipping"
+        echo "  ℹ️ DocumentProcessing not enabled in wo CR, skipping"
       fi
     fi
     if [ -n "$de_present" ]  && [ "${CHECK_DE:-1}"      -eq 1 ]; then de_ok=1;      if check_digital_employees; then de_ok=0; fi; fi
@@ -4406,7 +4406,7 @@ run_health_checks() {
       if is_ifm_enabled_in_wo; then
         ifm_cr_ok=1; if check_ifm_cr; then ifm_cr_ok=0; fi
       else
-        echo "  â¹ï¸ IFM disabled in wo CR, skipping"
+        echo "  ℹ️ IFM disabled in wo CR, skipping"
       fi
     fi
     if [ "${CHECK_DOCPROC:-1}" -eq 1 ]; then
@@ -4416,7 +4416,7 @@ run_health_checks() {
         if is_docproc_enabled_in_wo; then
           docproc_ok=1; if check_docproc; then docproc_ok=0; fi
         else
-          echo "  â¹ï¸ DocumentProcessing not enabled in wo CR, skipping"
+          echo "  ℹ️ DocumentProcessing not enabled in wo CR, skipping"
         fi
       fi
     fi
@@ -4479,23 +4479,23 @@ fi
 # Show troubleshoot warning BEFORE header (if troubleshoot mode is enabled)
 if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ "${SKIP_WARNING:-0}" -eq 0 ]; then
   echo ""
-  echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
-  echo "â                        TROUBLESHOOT MODE WARNING                             â"
-  echo "â âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ£"
-  echo "â                                                                              â"
-  echo "â  Troubleshoot mode performs advanced diagnostic and remediation operations   â"
-  echo "â  that may impact your running environment. This mode should ONLY be used:    â"
-  echo "â                                                                              â"
-  echo "â    â¢ When working directly with IBM Support                                  â"
-  echo "â    â¢ At the explicit recommendation of IBM Support personnel                 â"
-  echo "â    â¢ Under the guidance of qualified technical support staff                 â"
-  echo "â                                                                              â"
-  echo "â  Do NOT use troubleshoot mode for routine health checks or without           â"
-  echo "â  proper authorization and supervision from IBM Support.                      â"
-  echo "â                                                                              â"
-  echo "â  Tip: Use --yes or -y to bypass this warning in future runs.                 â"
-  echo "â                                                                              â"
-  echo "ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ"
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                        TROUBLESHOOT MODE WARNING                             ║"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+  echo "║                                                                              ║"
+  echo "║  Troubleshoot mode performs advanced diagnostic and remediation operations   ║"
+  echo "║  that may impact your running environment. This mode should ONLY be used:    ║"
+  echo "║                                                                              ║"
+  echo "║    • When working directly with IBM Support                                  ║"
+  echo "║    • At the explicit recommendation of IBM Support personnel                 ║"
+  echo "║    • Under the guidance of qualified technical support staff                 ║"
+  echo "║                                                                              ║"
+  echo "║  Do NOT use troubleshoot mode for routine health checks or without           ║"
+  echo "║  proper authorization and supervision from IBM Support.                      ║"
+  echo "║                                                                              ║"
+  echo "║  Tip: Use --yes or -y to bypass this warning in future runs.                 ║"
+  echo "║                                                                              ║"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
   read -p "Press Enter to continue or Ctrl+C to cancel..." </dev/tty
   echo ""
@@ -4511,7 +4511,7 @@ if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
   while [ "$TRY" -le "$MAX_TRIES" ]; do
     echo
     echo "=========================================="
-    echo "ð TROUBLESHOOT + HEALTH CHECK CYCLE $TRY of $MAX_TRIES"
+    echo "🔄 TROUBLESHOOT + HEALTH CHECK CYCLE $TRY of $MAX_TRIES"
     echo "=========================================="
     
     # Run troubleshoot diagnostics first
@@ -4526,13 +4526,13 @@ if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
        && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
        && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
        && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ] && [ "$storage_pods_ok" -eq 0 ] && [ "$all_operand_pods_ok" -eq 0 ]; then
-      echo "ð All enabled checks passed on attempt $TRY. Orchestrate is healthy."
+      echo "🎉 All enabled checks passed on attempt $TRY. Orchestrate is healthy."
       exit 0
     fi
 
     if [ "$TRY" -lt "$MAX_TRIES" ]; then
       echo
-      echo "ð Attempt $TRY failed. Rechecking in ${SLEEP_SECS}s ... Ctrl-C to stop"
+      echo "🔁 Attempt $TRY failed. Rechecking in ${SLEEP_SECS}s ... Ctrl-C to stop"
       sleep "$SLEEP_SECS"
       echo
     fi
@@ -4540,7 +4540,7 @@ if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
     TRY=`expr "$TRY" + 1`
   done
 
-  echo "â Exhausted MAX_TRIES=$MAX_TRIES without passing all enabled checks. Exiting with code 1."
+  echo "❌ Exhausted MAX_TRIES=$MAX_TRIES without passing all enabled checks. Exiting with code 1."
   exit 1
 else
   # Regular health check mode (no troubleshooting)
@@ -4548,7 +4548,7 @@ else
   while [ "$TRY" -le "$MAX_TRIES" ]; do
     echo
     echo "=========================================="
-    echo "ð HEALTH CHECK CYCLE $TRY of $MAX_TRIES"
+    echo "🔄 HEALTH CHECK CYCLE $TRY of $MAX_TRIES"
     echo "=========================================="
 
     # Run health checks
@@ -4559,13 +4559,13 @@ else
        && [ "$docproc_ok" -eq 0 ] && [ "$de_ok" -eq 0 ] && [ "$uab_ok" -eq 0 ] \
        && [ "$edb_ok" -eq 0 ] && [ "$kafka_ok" -eq 0 ] && [ "$redis_ok" -eq 0 ] && [ "$obc_ok" -eq 0 ] && [ "$wxd_ok" -eq 0 ] \
        && [ "$jobs_ok" -eq 0 ] && [ "$knative_eventing_ok" -eq 0 ] && [ "$storage_pods_ok" -eq 0 ] && [ "$all_operand_pods_ok" -eq 0 ]; then
-      echo "ð All enabled checks passed on attempt $TRY. Orchestrate is healthy."
+      echo "🎉 All enabled checks passed on attempt $TRY. Orchestrate is healthy."
       exit 0
     fi
 
     if [ "$TRY" -lt "$MAX_TRIES" ]; then
       echo
-      echo "ð Attempt $TRY failed. Rechecking in ${SLEEP_SECS}s ... Ctrl-C to stop"
+      echo "🔁 Attempt $TRY failed. Rechecking in ${SLEEP_SECS}s ... Ctrl-C to stop"
       sleep "$SLEEP_SECS"
       echo
     fi
@@ -4573,6 +4573,6 @@ else
     TRY=`expr "$TRY" + 1`
   done
 
-  echo "â Exhausted MAX_TRIES=$MAX_TRIES without passing all enabled checks. Exiting with code 1."
+  echo "❌ Exhausted MAX_TRIES=$MAX_TRIES without passing all enabled checks. Exiting with code 1."
   exit 1
 fi
