@@ -1912,8 +1912,20 @@ check_jobs() {
     if [ -n "$incomplete_jobs" ]; then
       echo "$incomplete_jobs"
     fi
+
+    if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ -n "$failed_jobs" ]; then
+      echo ""
+      printf "  Delete failed jobs? (y/N) [auto-skip in ${USER_INPUT_TIMEOUT}s]: "
+      if read -t "${USER_INPUT_TIMEOUT}" del_response </dev/tty 2>/dev/null; then : ; else del_response="n"; echo; echo "  ⏱️  No input, skipping..."; fi
+      if [ "$del_response" = "y" ] || [ "$del_response" = "Y" ]; then
+        echo "$failed_jobs" | grep '^ *-' | awk '{print $2}' | while read -r jname; do
+          echo "  🗑️  Deleting job $jname..."
+          $OCN delete job "$jname" --ignore-not-found && echo "  ✅ Deleted $jname" || echo "  ❌ Failed to delete $jname"
+        done
+      fi
+    fi
   fi
-  
+
   rm -f "$tmp_jobs"
   [ "$bad" -eq 0 ] && return 0 || return 1
 }
