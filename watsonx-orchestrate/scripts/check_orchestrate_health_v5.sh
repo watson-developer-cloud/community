@@ -1491,6 +1491,7 @@ check_wa_operator_verification() {
     return 1
   fi
   
+  echo ""
   echo "  📦 Operator pod: $operator_pod"
   
   # Check operator logs for verification status
