@@ -1451,16 +1451,11 @@ check_waall_resources() {
   echo "  📋 Checking WatsonAssistantAll (waall) resources..."
   waall_status=`$OC -n $PROJECT_CPD_INST_OPERANDS get waall --no-headers 2>/dev/null` || :
   if [ -n "$waall_status" ]; then
-    echo "$waall_status" | while read -r line; do
-      # columns: NAME VERSION READY STATE QUIESCING QUIESCESTATE DESIRED READY_PODS QUIESCED AGE
-      ready=$(echo "$line" | awk '{print $3}')
-      state=$(echo "$line" | awk '{print $4}')
-      if [ "$ready" = "True" ] && [ "$state" = "Stable" ]; then
-        echo "  ✅   $line"
-      else
-        echo "  ❌   $line"
-      fi
-    done
+    echo "$waall_status" | awk '{
+      icon = ($3 == "True" && $4 == "Stable") ? "✅" : "❌"
+      printf "  %s  %-58s %-7s %-6s %-12s %-6s %-12s %-6s %-6s %-13s %s\n",
+        icon, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    }'
   else
     echo "  ⚠️  No waall resources found"
   fi
