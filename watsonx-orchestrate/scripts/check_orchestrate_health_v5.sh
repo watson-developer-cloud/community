@@ -1453,19 +1453,12 @@ check_waall_resources() {
   if [ -n "$waall_status" ]; then
     echo "$waall_status" | while read -r line; do
       # columns: NAME VERSION READY STATE QUIESCING QUIESCESTATE DESIRED READY_PODS QUIESCED AGE
-      ready=$(echo "$line"      | awk '{print $3}')
-      state=$(echo "$line"      | awk '{print $4}')
-      desired=$(echo "$line"    | awk '{print $7}')
-      ready_pods=$(echo "$line" | awk '{print $8}')
+      ready=$(echo "$line" | awk '{print $3}')
+      state=$(echo "$line" | awk '{print $4}')
       if [ "$ready" = "True" ] && [ "$state" = "Stable" ]; then
         echo "  ✅   $line"
       else
         echo "  ❌   $line"
-        reason=""
-        [ "$ready" != "True" ]   && reason="${reason}Ready=$ready "
-        [ "$state" != "Stable" ] && reason="${reason}State=$state "
-        [ "$ready_pods" != "$desired" ] && reason="${reason}pods=$ready_pods/$desired"
-        echo "         ↳ Issue: $reason"
       fi
     done
   else
