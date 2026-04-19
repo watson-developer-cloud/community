@@ -4314,9 +4314,10 @@ run_troubleshoot_mode() {
       if [ "$wa_ready" != "True" ] || [ "$wa_status" != "Completed" ] || [ "$wa_progress" != "100%" ]; then
         waall_all_ok=`$OC -n $PROJECT_CPD_INST_OPERANDS get waall --no-headers 2>/dev/null | awk '$3!="True" || $4!="Stable"{found=1} END{print (found ? "no" : "yes")}'`
         if [ "$waall_all_ok" = "yes" ]; then
-          echo "▶ Watson Assistant CR not fully ready (Ready=$wa_ready, Status=$wa_status, Progress=$wa_progress) — all waall resources already stable, CR catching up"
+          echo "  ⚠️  Watson Assistant CR not fully ready (Ready=$wa_ready, Status=$wa_status, Progress=$wa_progress)"
+          echo "      All waall resources are stable — CR is catching up, no action needed"
         else
-          echo "▶ Watson Assistant CR shows issues - checking operator verification"
+          echo "▶ Checking Assistant Builder status"
           check_wa_operator_verification
         fi
       fi
