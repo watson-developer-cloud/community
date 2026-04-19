@@ -2000,7 +2000,7 @@ check_orchestrate_operators() {
   echo "▶ Checking Requested Operators"
 
   for spec in \
-    'wxo_operator::^ibm-wxo-componentcontroller-manager$' 'postgresql::^postgresql-operator-controller-manager' \
+    'wxo_operator::^(wo-operator|ibm-wxo-componentcontroller-manager)$' 'postgresql::^postgresql-operator-controller-manager' \
     'watson_gateway::^gateway-operator$' \
     'data_governor::^ibm-data-governor-operator$' \
     'opencontent_opensearch::^ibm-opensearch-operator-controller-manager$' \
