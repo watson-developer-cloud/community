@@ -601,12 +601,15 @@ show_current_config() {
     $OC -n "$ns" get wo "$wo_name" -o json 2>/dev/null | \
       jq -r '
         .spec.sizeMapping // {} | to_entries[] |
-        "     - " + .key + ":" +
-        "\n       replicas    : " + (.value.replicas | if . then tostring else "not set" end) +
-        "\n       cpu request : " + (.value.resources.requests.cpu  // "not set") +
-        "\n       cpu limit   : " + (.value.resources.limits.cpu    // "not set") +
-        "\n       mem request : " + (.value.resources.requests.memory // "not set") +
-        "\n       mem limit   : " + (.value.resources.limits.memory   // "not set")
+        . as $e |
+        (
+          ["     - " + $e.key + ":"],
+          (if $e.value.replicas != null then ["       replicas        : " + ($e.value.replicas | tostring)] else [] end),
+          (if $e.value.resources.requests.cpu != null then ["       cpu.requests    : " + $e.value.resources.requests.cpu] else [] end),
+          (if $e.value.resources.limits.cpu != null then ["       cpu.limits      : " + $e.value.resources.limits.cpu] else [] end),
+          (if $e.value.resources.requests.memory != null then ["       memory.requests : " + $e.value.resources.requests.memory] else [] end),
+          (if $e.value.resources.limits.memory != null then ["       memory.limits   : " + $e.value.resources.limits.memory] else [] end)
+        ) | .[]
       ' 2>/dev/null || echo "     (Unable to parse)"
   fi
   
