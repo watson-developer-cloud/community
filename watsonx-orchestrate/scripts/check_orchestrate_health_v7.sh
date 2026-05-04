@@ -177,6 +177,18 @@ print_box_line() {
   done
 }
 
+print_box_center_line() {
+  box_text=`sanitize_box_text "$1"`
+  box_len=${#box_text}
+  if [ "$box_len" -ge "$BOX_INNER_WIDTH" ]; then
+    print_box_line "$box_text"
+    return
+  fi
+  left_pad=$(( (BOX_INNER_WIDTH - box_len) / 2 ))
+  right_pad=$(( BOX_INNER_WIDTH - box_len - left_pad ))
+  printf "║ %*s%s%*s ║\n" "$left_pad" "" "$box_text" "$right_pad" ""
+}
+
 get_first_jsonpath_value() {
   resource="$1"
   name="$2"
@@ -1350,12 +1362,12 @@ modify_component_sizing() {
 run_configuration_mode() {
   echo ""
   echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-  echo "║                         CONFIGURATION MODE                                   ║"
+  print_box_center_line "CONFIGURATION MODE"
   echo "╠══════════════════════════════════════════════════════════════════════════════╣"
-  echo "║                                                                              ║"
-  echo "║  This mode allows you to view and modify WatsonxOrchestrate CR settings.    ║"
-  echo "║  Changes are applied immediately to the cluster.                             ║"
-  echo "║                                                                              ║"
+  print_box_blank
+  print_box_line "This mode allows you to view and modify WatsonxOrchestrate CR settings."
+  print_box_line "Changes are applied immediately to the cluster."
+  print_box_blank
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
   
