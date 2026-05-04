@@ -321,12 +321,10 @@ print_header_details_box() {
           (
             ["  \u2022 " + $e.key + ":"],
             (if $e.value.replicas != null then ["      replicas : " + ($e.value.replicas | tostring)] else [] end),
-            (if ($e.value.resources.requests.cpu != null or $e.value.resources.limits.cpu != null) then
-              ["      cpu      : " + ($e.value.resources.requests.cpu // "?") + " (req) / " + ($e.value.resources.limits.cpu // "?") + " (lim)"]
-            else [] end),
-            (if ($e.value.resources.requests.memory != null or $e.value.resources.limits.memory != null) then
-              ["      memory   : " + ($e.value.resources.requests.memory // "?") + " (req) / " + ($e.value.resources.limits.memory // "?") + " (lim)"]
-            else [] end)
+            (if $e.value.resources.requests.cpu != null then ["      cpu.requests    : " + $e.value.resources.requests.cpu] else [] end),
+            (if $e.value.resources.limits.cpu != null then ["      cpu.limits      : " + $e.value.resources.limits.cpu] else [] end),
+            (if $e.value.resources.requests.memory != null then ["      memory.requests : " + $e.value.resources.requests.memory] else [] end),
+            (if $e.value.resources.limits.memory != null then ["      memory.limits   : " + $e.value.resources.limits.memory] else [] end)
           ) | .[]
         else empty end
       ' > "$tmp_size_mapping" 2>/dev/null || :
