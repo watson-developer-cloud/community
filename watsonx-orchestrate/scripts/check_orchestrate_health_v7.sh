@@ -832,8 +832,8 @@ modify_image_digest() {
 
       # Show current SHA for this image if it exists
       local current_sha
-      current_sha=$(jq -r --arg image "$image_name" '.spec.image.digestOverrides[$image] // ""' "$tmp_wo_json" 2>/dev/null || echo "")
       repo_name=$(echo "$_DIGEST_OVERRIDE_IMAGE_MAP" | tr ' ' '\n' | awk -F'|' -v image="$image_name" '$1==image{print $2; exit}')
+      current_sha=$(jq -r --arg image "$repo_name" '.spec.image.digestOverrides[$image] // ""' "$tmp_wo_json" 2>/dev/null || echo "")
       running_sha=""
       [ -n "$repo_name" ] && running_sha=$(awk -F'\t' -v repo="$repo_name" '$1==repo {print $2; exit}' "$tmp_running_digests")
       [ -n "$repo_name" ] && echo "  Image repository/name: $repo_name"
@@ -856,9 +856,15 @@ modify_image_digest() {
         return
       fi
 
-      echo "Updating digest override for $image_name..."
+      # Add sha256: prefix if not present
+      if [[ ! "$digest_value" =~ ^sha256: ]]; then
+        digest_value="sha256:$digest_value"
+        echo "  (Added sha256: prefix)"
+      fi
+
+      echo "Updating digest override for $repo_name..."
       $OC -n "$ns" patch wo "$wo_name" --type=merge \
-        -p "{\"spec\":{\"image\":{\"digestOverrides\":{\"$image_name\":\"$digest_value\"}}}}"
+        -p "{\"spec\":{\"image\":{\"digestOverrides\":{\"$repo_name\":\"$digest_value\"}}}}"
       echo "✓ Digest override updated successfully"
       rm -f "$tmp_images" "$tmp_running_digests"
       ;;
