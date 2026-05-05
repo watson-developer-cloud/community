@@ -5080,7 +5080,8 @@ if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ "${SKIP_WARNING:-0}" -eq 0 ]; then
   echo "║                                                                              ║"
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
-  read -p "Press Enter to continue or Ctrl+C to cancel..." </dev/tty
+  printf '%s' "Press Enter to continue or Ctrl+C to cancel..."
+  IFS= read -r _ </dev/tty
   echo ""
 fi
 
