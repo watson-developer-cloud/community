@@ -283,6 +283,11 @@ check_pod_logs() {
 
 # Main execution
 main() {
+    # If no options provided, default to interactive mode
+    if [ "$INTERACTIVE" = false ] && [ "$SEARCH_ALL" = false ] && [ -z "$SEARCH_PATTERN" ]; then
+        INTERACTIVE=true
+    fi
+    
     # Run interactive mode if requested
     if [ "$INTERACTIVE" = true ]; then
         interactive_mode
@@ -291,12 +296,6 @@ main() {
         
         # Detect namespace if not provided
         detect_namespace
-        
-        # Validate inputs
-        if [ "$SEARCH_ALL" = false ] && [ -z "$SEARCH_PATTERN" ]; then
-            print_color "$RED" "Error: Must specify either -a (all errors), -s PATTERN (regex), or -m STRING (exact match)"
-            usage
-        fi
     fi
     
     # Build grep pattern - focusing on actual errors
