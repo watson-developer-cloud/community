@@ -136,8 +136,8 @@ print_color() {
 print_header() {
     echo ""
     print_color "$BLUE" "╔══════════════════════════════════════════════════════════════════════════════╗"
-    print_color "$BLUE" "║           WatsonX Orchestrate Pod Logs Error Checker                        ║"
-    print_color "$BLUE" "║                    Author: Manu Thapar                                       ║"
+    print_color "$BLUE" "║                  WatsonX Orchestrate Pod Logs Error Checker                  ║"
+    print_color "$BLUE" "║                             Author: Manu Thapar                              ║"
     print_color "$BLUE" "╚══════════════════════════════════════════════════════════════════════════════╝"
     echo ""
 }
@@ -167,7 +167,8 @@ interactive_mode() {
     detect_namespace
     
     print_color "$GREEN" "Detected namespace: $NAMESPACE"
-    read -p "Use this namespace? (y/n): " use_ns
+    read -p "Use this namespace? (Y/n): " use_ns
+    use_ns=${use_ns:-Y}  # Default to Y if empty
     if [[ ! $use_ns =~ ^[Yy]$ ]]; then
         read -p "Enter namespace: " NAMESPACE
     fi
@@ -215,13 +216,15 @@ interactive_mode() {
     esac
     
     echo ""
-    read -p "Save output to file? (y/n): " save_file
+    read -p "Save output to file? (y/N): " save_file
+    save_file=${save_file:-N}  # Default to N if empty
     if [[ $save_file =~ ^[Yy]$ ]]; then
         read -p "Enter filename: " OUTPUT_FILE
     fi
     
     echo ""
-    read -p "Show full output (no truncation)? (y/n): " show_full
+    read -p "Show full output (no truncation)? (y/N): " show_full
+    show_full=${show_full:-N}  # Default to N if empty
     if [[ $show_full =~ ^[Yy]$ ]]; then
         VERBOSE=true
     fi
