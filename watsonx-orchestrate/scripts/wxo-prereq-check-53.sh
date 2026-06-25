@@ -1,28 +1,27 @@
 #!/bin/sh
 ################################################################################
-# Watson Orchestrate Pre-Installation/Upgrade Prerequisite Check Script
+# Watson Orchestrate Pre-Installation Prerequisite Check Script
 #
 # Description: This script validates all prerequisites before Watson Orchestrate
-#              installation or upgrade.
+#              installation.
 #
 # Authors: Amal Paul, Manu Thapar
-# Version: 1.2.0
+# Version: 1.1.0
 #
 # Documentation References:
-#   Documentation URLs are dynamically generated based on the --version parameter
-#   - IBM Software Hub: https://www.ibm.com/docs/en/software-hub/{version}.x
-#   - Watson Orchestrate Installation: https://www.ibm.com/docs/en/software-hub/{version}.x?topic=orchestrate-installing
-#   - GPU Requirements: https://www.ibm.com/docs/en/software-hub/{version}.x?topic=requirements-gpu-models
+#   - IBM Software Hub 5.3.x: https://www.ibm.com/docs/en/software-hub/5.3.x
+#   - Watson Orchestrate Installation: https://www.ibm.com/docs/en/software-hub/5.3.x?topic=orchestrate-installing
+#   - Storage Requirements: https://www.ibm.com/docs/en/software-hub/5.3.x?topic=orchestrate-installing
+#   - GPU Requirements: https://www.ibm.com/docs/en/software-hub/5.3.x?topic=requirements-gpu-models
 #   - MCG Installation: https://www.ibm.com/docs/en/cloud-paks/cp-data/5.0.x?topic=software-installing-multicloud-object-gateway
-#   - Knative Eventing: https://www.ibm.com/docs/en/software-hub/{version}.x?topic=software-installing-red-hat-openshift-serverless-knative-eventing
+#   - Knative Eventing: https://www.ibm.com/docs/en/software-hub/5.3.x?topic=software-installing-red-hat-openshift-serverless-knative-eventing
 #
-# Usage: sh wxo-prereq-check.sh [OPTIONS]
+# Usage: sh pre-requisite-script.sh [OPTIONS]
 #
 # Options:
-#   --mode <install|upgrade>       Check mode (required)
 #   --operator-ns <namespace>      CPD operators namespace (optional, default: auto-detect or cpd-operators)
 #   --operand-ns <namespace>       CPD operands namespace (optional, default: auto-detect or cpd-instance-1)
-#   --version <version>            Watson Orchestrate version (required for install, optional for upgrade, e.g., 5.3.0, 5.3.1, 5.4.0)
+#   --version <version>            Watson Orchestrate version (required, e.g., 5.3.0, 5.3.1, 5.3.2, etc.)
 #   --installation-type <type>     Installation type (required)
 #                                  For version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant
 #                                  For version >= 5.3.1: agentic, agentic_assistant
@@ -66,13 +65,12 @@ PROJECT_CPD_INST_OPERANDS="${PROJECT_CPD_INST_OPERANDS:-cpd-instance-1}"
 PROJECT_IBM_EVENTS="${PROJECT_IBM_EVENTS:-ibm-knative-events}"
 
 # Installation configuration variables
-MODE=""  # install or upgrade (required parameter)
 VERSION=""
 INSTALLATION_TYPE=""
 INTERNAL_IFM=""
 
-# Storage class validation arrays (based on IBM Software Hub documentation)
-# Reference: Documentation URL is dynamically generated based on version
+# Storage class validation arrays (based on IBM Software Hub 5.3.x documentation)
+# Reference: https://www.ibm.com/docs/en/software-hub/5.3.x?topic=orchestrate-installing
 UNSUPPORTED_STORAGE_CLASSES=(
     "ibm-storage-scale-container-native"
     "nfs"
@@ -102,69 +100,24 @@ SUPPORTED_PROVISIONERS=(
 # Utility Functions
 ################################################################################
 
-# Function to get documentation URL based on version
-get_doc_url() {
-    local doc_type="$1"
-    local version_major_minor=$(echo "$VERSION" | cut -d. -f1,2)
-    
-    case "$doc_type" in
-        "installing")
-            echo "https://www.ibm.com/docs/en/software-hub/${version_major_minor}.x?topic=orchestrate-installing"
-            ;;
-        "gpu-requirements")
-            echo "https://www.ibm.com/docs/en/software-hub/${version_major_minor}.x?topic=requirements-gpu-models"
-            ;;
-        "knative-eventing")
-            echo "https://www.ibm.com/docs/en/software-hub/${version_major_minor}.x?topic=software-installing-red-hat-openshift-serverless-knative-eventing"
-            ;;
-        "software-hub")
-            echo "https://www.ibm.com/docs/en/software-hub/${version_major_minor}.x?topic=installing-instance-software-hub"
-            ;;
-        "base")
-            echo "https://www.ibm.com/docs/en/software-hub/${version_major_minor}.x"
-            ;;
-        *)
-            echo "https://www.ibm.com/docs/en/software-hub/${version_major_minor}.x"
-            ;;
-    esac
-}
-
 usage() {
     cat << EOF
-Watson Orchestrate Pre-Installation/Upgrade Prerequisite Check Script
+Watson Orchestrate Pre-Installation Prerequisite Check Script
 
 Usage: $0 [OPTIONS]
 
 Options:
-  --mode <install|upgrade>       Check mode (required)
-                                 - install: Validates prerequisites for new installation
-                                 - upgrade: Validates existing deployment and upgrade readiness
   --operator-ns <namespace>      CPD operators namespace (optional, default: auto-detect or cpd-operators)
   --operand-ns <namespace>       CPD operands namespace (optional, default: auto-detect or cpd-instance-1)
-  --version <version>            Watson Orchestrate version (required for install, optional for upgrade, e.g., 5.3.0, 5.3.1, 5.4.0)
+  --version <version>            Watson Orchestrate version (required, e.g., 5.3.0, 5.3.1, 5.3.2, etc.)
   --installation-type <type>     Installation type (required)
                                  For version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant
                                  For version >= 5.3.1: agentic, agentic_assistant
   --internal-ifm <true|false>    Internal IFM flag (required)
   -h, --help                     Display this help message
 
-Mode Details:
-  INSTALL MODE (default):
-    - Requires: --version, --installation-type, --internal-ifm
-    - Validates prerequisites for fresh Watson Orchestrate installation
-    - Checks cluster resources, storage, operators, and dependencies
-    
-  UPGRADE MODE:
-    - Requires: --installation-type, --internal-ifm
-    - Optional: --version
-    - Validates existing Watson Orchestrate deployment health
-    - Checks instance status (must be Ready/Completed)
-    - Verifies no pending PVCs or failed jobs
-    - Reports current versions and compatibility
-    - Provides upgrade readiness assessment
-
 Examples:
-  # INSTALLATION MODE (requires --version, --installation-type, --internal-ifm)
+  # Basic usage with required parameters (version 5.3.0)
   $0 --version 5.3.0 --installation-type agentic --internal-ifm true
 
   # Version 5.3.0 with agentic_skills_assistant
@@ -173,25 +126,15 @@ Examples:
   # Version 5.3.1 or later (agentic_skills_assistant not available)
   $0 --version 5.3.1 --installation-type agentic_assistant --internal-ifm false
 
-  # Version 5.4.0 or later
-  $0 --version 5.4.0 --installation-type agentic --internal-ifm true
+  # Version 5.3.2 or later
+  $0 --version 5.3.2 --installation-type agentic --internal-ifm true
 
-  # Specify custom namespaces for installation
+  # Specify custom namespaces
   $0 --operator-ns my-operators --operand-ns my-operands --version 5.3.1 --installation-type agentic --internal-ifm false
 
-  # UPGRADE MODE (requires --mode, --installation-type, and --internal-ifm)
-  $0 --mode upgrade --installation-type agentic --internal-ifm true
-
-  # Upgrade with custom namespaces
-  $0 --mode upgrade --installation-type agentic_assistant --internal-ifm false --operator-ns my-operators --operand-ns my-operands
-
-  # Using environment variables for installation
+  # Using environment variables
   PROJECT_CPD_INST_OPERATORS=my-operators PROJECT_CPD_INST_OPERANDS=my-operands \\
     $0 --version 5.3.0 --installation-type agentic_skills_assistant --internal-ifm true
-
-  # Using environment variables for upgrade
-  PROJECT_CPD_INST_OPERATORS=my-operators PROJECT_CPD_INST_OPERANDS=my-operands \\
-    $0 --mode upgrade --installation-type agentic --internal-ifm true
 
 Environment Variables:
   PROJECT_CPD_INST_OPERATORS     CPD operators namespace (overridden by --operator-ns)
@@ -251,11 +194,7 @@ print_summary() {
         log_warning "Prerequisites check completed with warnings. Review warnings before proceeding."
         return 0
     else
-        if [ "$MODE" = "upgrade" ]; then
-            log_success "All prerequisites checks PASSED. You can proceed with Watson Orchestrate upgrade."
-        else
-            log_success "All prerequisites checks PASSED. You can proceed with Watson Orchestrate installation."
-        fi
+        log_success "All prerequisites checks PASSED. You can proceed with Watson Orchestrate installation."
         return 0
     fi
 }
@@ -320,16 +259,10 @@ check_worker_nodes() {
     
     local worker_nodes=$(oc get nodes -l node-role.kubernetes.io/worker --no-headers 2>/dev/null | wc -l | tr -d ' ')
     
-    # Only check minimum worker nodes requirement in install mode
-    if [ "$MODE" = "install" ]; then
-        if [ "$worker_nodes" -lt "$MIN_WORKER_NODES" ]; then
-            log_error "Insufficient worker nodes. Found: $worker_nodes, Required: $MIN_WORKER_NODES"
-        else
-            log_success "Worker nodes: $worker_nodes (minimum: $MIN_WORKER_NODES)"
-        fi
+    if [ "$worker_nodes" -lt "$MIN_WORKER_NODES" ]; then
+        log_error "Insufficient worker nodes. Found: $worker_nodes, Required: $MIN_WORKER_NODES"
     else
-        # In upgrade mode, just report the count without minimum check
-        log_success "Worker nodes: $worker_nodes"
+        log_success "Worker nodes: $worker_nodes (minimum: $MIN_WORKER_NODES)"
     fi
 }
 
@@ -354,8 +287,8 @@ check_storage_classes() {
     done
     
     log ""
-    log_info "Please Validate storage classes against IBM Software Hub requirements..."
-    log_info "Reference: $(get_doc_url 'installing')"
+    log_info "Please Validate storage classes against IBM Software Hub 5.3.x requirements..."
+    log_info "Reference: https://www.ibm.com/docs/en/software-hub/5.3.x?topic=orchestrate-installing"
     log ""
 
 }
@@ -454,7 +387,7 @@ check_software_hub_instance() {
     if ! oc get namespace "$PROJECT_CPD_INST_OPERANDS" &> /dev/null; then
         log_error "Namespace '$PROJECT_CPD_INST_OPERANDS' does not exist"
         log_error "  IBM Software Hub must be installed before Watson Orchestrate"
-        log_error "  Install IBM Software Hub first: $(get_doc_url 'software-hub')"
+        log_error "  Install IBM Software Hub first: https://www.ibm.com/docs/en/software-hub/5.3.x?topic=installing-instance-software-hub"
         return 0
     fi
 
@@ -462,7 +395,7 @@ check_software_hub_instance() {
     if ! oc get ibmcpd ibmcpd-cr -n "$PROJECT_CPD_INST_OPERANDS" &> /dev/null; then
         log_error "IBM Software Hub custom resource 'ibmcpd-cr' not found in namespace: $PROJECT_CPD_INST_OPERANDS"
         log_error "  IBM Software Hub must be installed before Watson Orchestrate"
-        log_error "  Install IBM Software Hub first: $(get_doc_url 'software-hub')"
+        log_error "  Install IBM Software Hub first: https://www.ibm.com/docs/en/software-hub/5.3.x?topic=installing-instance-software-hub"
         return 0
     fi
 
@@ -522,12 +455,7 @@ check_software_hub_instance() {
     else
         log_error "ZenService installation is not complete: $zen_progress"
         log_error "  Current status: $zen_status"
-        if [ "$MODE" = "install" ]; then
         log_error "  Wait for ZenService to reach 100% before installing Watson Orchestrate"
-        fi
-        if [ "$MODE" = "upgrade" ]; then
-        log_error "  Check ZenServce and IBM Software Hub installation before proceeding with upgrade."
-        fi  
     fi
     
 }
@@ -795,10 +723,6 @@ check_gpu_support() {
 parse_arguments() {
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --mode)
-                MODE="$2"
-                shift 2
-                ;;
             --operator-ns)
                 PROJECT_CPD_INST_OPERATORS="$2"
                 shift 2
@@ -829,73 +753,34 @@ parse_arguments() {
         esac
     done
     
-    # Validate MODE is provided
-    if [ -z "$MODE" ]; then
-        log_error "Missing required parameter: --mode"
-        log_error "Valid values: install, upgrade"
+    # Validate required parameters
+    if [ -z "$VERSION" ] && [ -z "$INSTALLATION_TYPE" ] && [ -z "$INTERNAL_IFM" ]; then
+        log_error "Missing required parameters: --version, --installation-type, and --internal-ifm"
+        log_error "  --version: 5.3.0, 5.3.1, 5.3.2, or later 5.3.x versions"
+        log_error "  --installation-type: agentic, agentic_assistant, agentic_skills_assistant (5.3.0 only)"
+        log_error "  --internal-ifm: true, false"
+        exit 1
+    elif [ -z "$VERSION" ]; then
+        log_error "Missing required parameter: --version"
+        log_error "Valid values: 5.3.0, 5.3.1, 5.3.2, or later 5.3.x versions"
+        exit 1
+    elif [ -z "$INSTALLATION_TYPE" ]; then
+        log_error "Missing required parameter: --installation-type"
+        log_error "Valid values depend on version:"
+        log_error "  Version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant"
+        log_error "  Version >= 5.3.1: agentic, agentic_assistant"
+        exit 1
+    elif [ -z "$INTERNAL_IFM" ]; then
+        log_error "Missing required parameter: --internal-ifm"
+        log_error "Valid values: true, false"
         exit 1
     fi
     
-    # Validate MODE value
-    if [ "$MODE" != "install" ] && [ "$MODE" != "upgrade" ]; then
-        log_error "Invalid mode: $MODE"
-        log_error "Valid values: install, upgrade"
+    # Validate version format (basic check)
+    if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        log_error "Invalid version format: $VERSION"
+        log_error "Expected format: X.Y.Z (e.g., 5.3.0, 5.3.1)"
         exit 1
-    fi
-    
-    # Validate required parameters for INSTALL mode
-    if [ "$MODE" = "install" ]; then
-        if [ -z "$VERSION" ] && [ -z "$INSTALLATION_TYPE" ] && [ -z "$INTERNAL_IFM" ]; then
-            log_error "Missing required parameters: --version, --installation-type, and --internal-ifm"
-            log_error "  --version: 5.3.0, 5.3.1, 5.3.2, 5.4.0, or later 5.3.x/5.4.x versions"
-            log_error "  --installation-type: agentic, agentic_assistant, agentic_skills_assistant (5.3.0 only)"
-            log_error "  --internal-ifm: true, false"
-            exit 1
-        elif [ -z "$VERSION" ]; then
-            log_error "Missing required parameter: --version"
-            log_error "Valid values: 5.3.0, 5.3.1, 5.3.2, 5.4.0, or later 5.3.x/5.4.x versions"
-            exit 1
-        elif [ -z "$INSTALLATION_TYPE" ]; then
-            log_error "Missing required parameter: --installation-type"
-            log_error "Valid values depend on version:"
-            log_error "  Version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant"
-            log_error "  Version >= 5.3.1: agentic, agentic_assistant"
-            exit 1
-        elif [ -z "$INTERNAL_IFM" ]; then
-            log_error "Missing required parameter: --internal-ifm"
-            log_error "Valid values: true, false"
-            exit 1
-        fi
-    fi
-    
-    # For UPGRADE mode, installation-type and internal-ifm are required, version is optional
-    if [ "$MODE" = "upgrade" ]; then
-        if [ -z "$INSTALLATION_TYPE" ] && [ -z "$INTERNAL_IFM" ]; then
-            log_error "Missing required parameters: --installation-type and --internal-ifm"
-            log_error "  --installation-type: agentic, agentic_assistant, agentic_skills_assistant (5.3.0 only)"
-            log_error "  --internal-ifm: true, false"
-            exit 1
-        elif [ -z "$INSTALLATION_TYPE" ]; then
-            log_error "Missing required parameter: --installation-type"
-            log_error "Valid values depend on version:"
-            log_error "  Version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant"
-            log_error "  Version >= 5.3.1: agentic, agentic_assistant"
-            exit 1
-        elif [ -z "$INTERNAL_IFM" ]; then
-            log_error "Missing required parameter: --internal-ifm"
-            log_error "Valid values: true, false"
-            exit 1
-        fi
-        log_info "Running in UPGRADE mode - version is optional"
-    fi
-    
-    # Validate version format (basic check) - only if VERSION is provided
-    if [ -n "$VERSION" ]; then
-        if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            log_error "Invalid version format: $VERSION"
-            log_error "Expected format: X.Y.Z (e.g., 5.3.0, 5.3.1, 5.4.0)"
-            exit 1
-        fi
     fi
     
     # Version comparison function
@@ -935,62 +820,55 @@ parse_arguments() {
         fi
     }
     
-    # Validate version and installation type only if provided (for install mode or optional upgrade validation)
-    if [ -n "$VERSION" ]; then
-        # Check if version is less than 5.3.0
-        if ! version_compare "$VERSION" "5.3.0"; then
-            log_error "Unsupported version: $VERSION"
-            log_error "Watson Orchestrate version must be 5.3.0 or higher"
-            log_error "This script supports versions 5.3.0 and above"
-            exit 1
-        fi
+    # Check if version is less than 5.3.0 (must be after version_compare function definition)
+    if ! version_compare "$VERSION" "5.3.0"; then
+        log_error "Unsupported version: $VERSION"
+        log_error "Watson Orchestrate version must be 5.3.0 or higher"
+        log_error "This script supports versions 5.3.0 and above"
+        exit 1
     fi
     
-    # Validate installation type based on version (only if both are provided)
-    if [ -n "$VERSION" ] && [ -n "$INSTALLATION_TYPE" ]; then
-        if version_compare "$VERSION" "5.3.1"; then
-            # Version >= 5.3.1: agentic_skills_assistant is NOT available
-            case "$INSTALLATION_TYPE" in
-                agentic|agentic_assistant)
-                    ;;
-                agentic_skills_assistant)
-                    log_error "Invalid installation type for version $VERSION: $INSTALLATION_TYPE"
-                    log_error "The 'agentic_skills_assistant' installation type is only available in version 5.3.0"
-                    log_error "Valid values for version >= 5.3.1: agentic, agentic_assistant"
-                    exit 1
-                    ;;
-                *)
-                    log_error "Invalid installation type: $INSTALLATION_TYPE"
-                    log_error "Valid values for version >= 5.3.1: agentic, agentic_assistant"
-                    exit 1
-                    ;;
-            esac
-        else
-            # Version 5.3.0: all installation types are available
-            case "$INSTALLATION_TYPE" in
-                agentic|agentic_assistant|agentic_skills_assistant)
-                    ;;
-                *)
-                    log_error "Invalid installation type: $INSTALLATION_TYPE"
-                    log_error "Valid values for version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant"
-                    exit 1
-                    ;;
-            esac
-        fi
-    fi
-    
-    # Validate internal_ifm only if provided
-    if [ -n "$INTERNAL_IFM" ]; then
-        case "$INTERNAL_IFM" in
-            true|false)
+    # Validate installation type based on version
+    if version_compare "$VERSION" "5.3.1"; then
+        # Version >= 5.3.1: agentic_skills_assistant is NOT available
+        case "$INSTALLATION_TYPE" in
+            agentic|agentic_assistant)
+                ;;
+            agentic_skills_assistant)
+                log_error "Invalid installation type for version $VERSION: $INSTALLATION_TYPE"
+                log_error "The 'agentic_skills_assistant' installation type is only available in version 5.3.0"
+                log_error "Valid values for version >= 5.3.1: agentic, agentic_assistant"
+                exit 1
                 ;;
             *)
-                log_error "Invalid internal-ifm value: $INTERNAL_IFM"
-                log_error "Valid values: true, false"
+                log_error "Invalid installation type: $INSTALLATION_TYPE"
+                log_error "Valid values for version >= 5.3.1: agentic, agentic_assistant"
+                exit 1
+                ;;
+        esac
+    else
+        # Version 5.3.0: all installation types are available
+        case "$INSTALLATION_TYPE" in
+            agentic|agentic_assistant|agentic_skills_assistant)
+                ;;
+            *)
+                log_error "Invalid installation type: $INSTALLATION_TYPE"
+                log_error "Valid values for version 5.3.0: agentic, agentic_assistant, agentic_skills_assistant"
                 exit 1
                 ;;
         esac
     fi
+    
+    # Validate internal_ifm
+    case "$INTERNAL_IFM" in
+        true|false)
+            ;;
+        *)
+            log_error "Invalid internal-ifm value: $INTERNAL_IFM"
+            log_error "Valid values: true, false"
+            exit 1
+            ;;
+    esac
     
     # Set defaults for optional parameters if not provided
     if [ -z "$PROJECT_CPD_INST_OPERATORS" ]; then
@@ -1008,366 +886,40 @@ parse_arguments() {
 # Main Execution
 ################################################################################
 
-check_upgrade_prerequisites() {
-    print_header "Upgrade-Specific Prerequisites"
-    
-    # Check for running Watson Orchestrate instances
-    local wo_instances=$(oc get watsonxorchestrates -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | wc -l | tr -d ' ')
-    
-    if [ "$wo_instances" -eq 0 ]; then
-        log_error "No Watson Orchestrate instances found in '$PROJECT_CPD_INST_OPERANDS'"
-        log_error "  Cannot upgrade without an existing Watson Orchestrate installation"
-        return 0
-    fi
-    
-    log_success "Found $wo_instances Watson Orchestrate instance(s) in '$PROJECT_CPD_INST_OPERANDS'"
-    
-    # Check instance status by RECONCILE_PROGRESS
-    # Format varies by version:
-    # 5.3.x: NAME VERSION DEPLOYED VERIFIED TOTAL INSTALLMODE QUIESCE RECONCILE_PROGRESS AGE
-    # 5.4.x: NAME VERSION PATCH_VERSION READY DEPLOYING_COMPONENT DEPLOYED VERIFIED INSTALLMODE QUIESCE RECONCILE_PROGRESS AGE
-    #        Note: PATCH_VERSION can contain spaces like "GA (8.0.0)"
-    
-    # Get header to detect format
-    local header=$(oc get watsonxorchestrates -n "$PROJECT_CPD_INST_OPERANDS" 2>/dev/null | head -n 1)
-    local has_patch_version=0
-    if echo "$header" | grep -q "PATCH_VERSION"; then
-        has_patch_version=1
-    fi
-    
-    oc get watsonxorchestrates -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | while IFS= read -r line; do
-        local name=$(echo "$line" | awk '{print $1}')
-        local version=$(echo "$line" | awk '{print $2}')
-        local reconcile_progress
-        local details
-        
-        if [ "$has_patch_version" -eq 1 ]; then
-            # 5.4.x format: PATCH_VERSION can have spaces, so find RECONCILE_PROGRESS by searching backwards from end
-            # The last field is AGE, second-to-last is RECONCILE_PROGRESS
-            reconcile_progress=$(echo "$line" | awk '{print $(NF-1)}')
-            # Extract patch version (everything between column 3 and before READY column)
-            # READY is always "True" or "False", use it as marker
-            local patch_version=$(echo "$line" | sed 's/.*'"$version"' \(.*\) True.*/\1/' | sed 's/.*'"$version"' \(.*\) False.*/\1/')
-            details="version: $version $patch_version"
-        else
-            # 5.3.x format: RECONCILE_PROGRESS is second-to-last column (before AGE)
-            local deployed=$(echo "$line" | awk '{print $3}')
-            local verified=$(echo "$line" | awk '{print $4}')
-            local total=$(echo "$line" | awk '{print $5}')
-            reconcile_progress=$(echo "$line" | awk '{print $(NF-1)}')
-            details="version: $version, deployed: $deployed/$total, verified: $verified/$total"
-        fi
-        
-        if [ "$reconcile_progress" = "100%" ]; then
-            log_success "WO instance '$name' is in Completed state ($details, reconcile progress: $reconcile_progress)"
-        else
-            log_error "WO instance '$name' is not in Completed state ($details, reconcile progress: $reconcile_progress)"
-            log_error "  Instance must have RECONCILE_PROGRESS at 100% before upgrade"
-        fi
-    done
-    
-    # Check for pending PVCs
-    local pending_pvcs=$(oc get pvc -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | awk '$2=="Pending" {print $1}' | wc -l | tr -d ' ')
-    if [ "$pending_pvcs" -gt 0 ]; then
-        log_error "Found $pending_pvcs pending PVC(s) in '$PROJECT_CPD_INST_OPERANDS'"
-        log_error "  Resolve PVC issues before upgrade"
-        oc get pvc -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | awk '$2=="Pending" {print "    " $1}'
-    else
-        log_success "No pending PVCs in '$PROJECT_CPD_INST_OPERANDS'"
-    fi
-    
-    # Check for failed jobs
-    local failed_jobs=$(oc get jobs -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | awk '$3 ~ /0\/1/ && $4 > 0 {print $1}' | wc -l | tr -d ' ')
-    if [ "$failed_jobs" -gt 0 ]; then
-        log_warning "Found $failed_jobs failed job(s) in '$PROJECT_CPD_INST_OPERANDS'"
-        log_warning "  Review and resolve failed jobs before upgrade"
-    else
-        log_success "No failed jobs in '$PROJECT_CPD_INST_OPERANDS'"
-    fi
-    
-    # Check cluster version stability
-    local cluster_progressing=$(oc get clusterversion version -o jsonpath='{.status.conditions[?(@.type=="Progressing")].status}' 2>/dev/null || echo 'Unknown')
-    if [ "$cluster_progressing" = "False" ]; then
-        log_success "Cluster version is stable (not progressing)"
-    else
-        log_warning "Cluster version is progressing - wait for stability before upgrade"
-    fi
-}
-
-check_image_overrides() {
-    print_header "Checking for Image Overrides"
-    
-    log_info "Checking for image overrides applied through WO CR..."
-    
-    # Check for image overrides in WatsonxOrchestrate CR
-    local wo_instances=$(oc get watsonxorchestrates -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | awk '{print $1}')
-    
-    if [ -z "$wo_instances" ]; then
-        log_warning "No Watson Orchestrate instances found in '$PROJECT_CPD_INST_OPERANDS'"
-        return 0
-    fi
-    
-    local overrides_found=0
-    
-    for instance in $wo_instances; do
-        log_info "Checking WO instance: $instance"
-        
-        # Check for digestOverrides in spec.image.digestOverrides
-        local has_digest_overrides=$(oc get watsonxorchestrates "$instance" -n "$PROJECT_CPD_INST_OPERANDS" -o json 2>/dev/null | \
-            jq -r 'select(.spec.image.digestOverrides != null) | "true"')
-        
-        if [ "$has_digest_overrides" = "true" ]; then
-            overrides_found=1
-            log_error "Image digest overrides detected in WO CR '$instance'"
-            log_error "  Found spec.image.digestOverrides configuration"
-            
-            # Show the digest override details
-            local digest_count=$(oc get watsonxorchestrates "$instance" -n "$PROJECT_CPD_INST_OPERANDS" -o json 2>/dev/null | \
-                jq -r '.spec.image.digestOverrides | length' 2>/dev/null)
-            
-            if [ -n "$digest_count" ] && [ "$digest_count" != "null" ]; then
-                log_error "  Number of digest overrides: $digest_count"
-                
-                # List the overridden images
-                local overridden_images=$(oc get watsonxorchestrates "$instance" -n "$PROJECT_CPD_INST_OPERANDS" -o json 2>/dev/null | \
-                    jq -r '.spec.image.digestOverrides | keys[]' 2>/dev/null)
-                
-                if [ -n "$overridden_images" ]; then
-                    log_error "  Overridden images:"
-                    echo "$overridden_images" | while IFS= read -r img; do
-                        local digest=$(oc get watsonxorchestrates "$instance" -n "$PROJECT_CPD_INST_OPERANDS" -o json 2>/dev/null | \
-                            jq -r ".spec.image.digestOverrides[\"$img\"]" 2>/dev/null)
-                        log_error "    - $img: $digest"
-                    done
-                fi
-            fi
-        fi
-        
-        # Check for other image override fields (legacy or alternative formats)
-        local has_other_overrides=$(oc get watsonxorchestrates "$instance" -n "$PROJECT_CPD_INST_OPERANDS" -o json 2>/dev/null | \
-            jq -r 'select(.spec.image_overrides != null or .spec.imageOverrides != null or .spec.images != null) | "true"')
-        
-        if [ "$has_other_overrides" = "true" ]; then
-            overrides_found=1
-            log_error "Image overrides detected in WO CR '$instance'"
-            log_error "  Found image override configuration in spec"
-            
-            # Show the override details
-            local override_details=$(oc get watsonxorchestrates "$instance" -n "$PROJECT_CPD_INST_OPERANDS" -o json 2>/dev/null | \
-                jq -r '.spec | {image_overrides, imageOverrides, images} | to_entries | map(select(.value != null)) | .[] | "    \(.key): \(.value | keys | join(", "))"' 2>/dev/null)
-            
-            if [ -n "$override_details" ]; then
-                log_error "  Override fields found:"
-                echo "$override_details" | while IFS= read -r line; do
-                    log_error "$line"
-                done
-            fi
-        fi
-    done
-    
-    # Check for image overrides in related ConfigMaps
-    local override_configmaps=$(oc get configmap -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | \
-        awk '{print $1}' | grep -E 'image-override|wo-image' || true)
-    
-    if [ -n "$override_configmaps" ]; then
-        overrides_found=1
-        log_error "Found ConfigMaps that may contain image overrides:"
-        echo "$override_configmaps" | while IFS= read -r cm; do
-            log_error "  ConfigMap: $cm"
-        done
-    fi
-    
-    # Check for image overrides in related Secrets
-    local override_secrets=$(oc get secret -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | \
-        awk '{print $1}' | grep -E 'image-override|wo-image' || true)
-    
-    if [ -n "$override_secrets" ]; then
-        overrides_found=1
-        log_error "Found Secrets that may contain image overrides:"
-        echo "$override_secrets" | while IFS= read -r secret; do
-            log_error "  Secret: $secret"
-        done
-    fi
-    
-    if [ "$overrides_found" -eq 1 ]; then
-        log_error "Image overrides detected - these must be removed before upgrade"
-        log_error "Contact IBM Support for guidance on removing image overrides"
-    else
-        log_success "No image overrides detected in WO CR or related resources"
-    fi
-}
-
-check_certificate_san_entries() {
-    print_header "Checking Certificate SAN Entries"
-    
-    log_info "Checking for certificates with incorrect SAN entries from previous releases..."
-    
-    # List of certificates that may have incorrect SAN entries
-    local affected_certs=(
-        "wo-ibm-connectivity-pack-tls-icert"
-        "wo-connection-manager-service-tls-icert"
-        "wo-automation-discovery-tls-icert"
-        "wo-discover-skills-tls-icert"
-        "wo-archer-de-client-tls-icert"
-        "wo-uiproxy-tls-icert"
-    )
-    
-    local bad_certs_found=0
-    local certs_to_delete=()
-    
-    for cert_name in "${affected_certs[@]}"; do
-        # Check if certificate exists
-        if ! oc get certificate "$cert_name" -n "$PROJECT_CPD_INST_OPERANDS" &>/dev/null; then
-            log_info "Certificate '$cert_name' not found (may not be installed yet)"
-            continue
-        fi
-        
-        log_info "Checking certificate: $cert_name"
-        
-        # Get DNS names from the certificate
-        local dns_names=$(oc get certificate "$cert_name" -n "$PROJECT_CPD_INST_OPERANDS" -o json 2>/dev/null | \
-            jq -r '.spec.dnsNames[]?' 2>/dev/null)
-        
-        if [ -z "$dns_names" ]; then
-            log_warning "Could not retrieve DNS names for certificate '$cert_name'"
-            continue
-        fi
-        
-        # Check for incorrect SAN entries (missing dots in DNS names)
-        # Correct format: wo-uiproxy.watsonx, wo-uiproxy.watsonx.svc, wo-uiproxy.watsonx.svc.cluster.local
-        # Incorrect format: wo-uiproxy-watsonx, wo-uiproxy-watsonx.svc, wo-uiproxy-watsonx.svc.cluster.local
-        local has_bad_san=0
-        local bad_entries=""
-        
-        while IFS= read -r dns_name; do
-            # Check if DNS name contains hyphen before namespace instead of dot
-            # Pattern: service-name-namespace instead of service-name.namespace
-            if echo "$dns_name" | grep -qE "^wo-[a-z-]+-${PROJECT_CPD_INST_OPERANDS}(\.|$)"; then
-                has_bad_san=1
-                bad_entries="${bad_entries}    - $dns_name (should use dot separator, not hyphen)\n"
-            fi
-        done <<< "$dns_names"
-        
-        if [ "$has_bad_san" -eq 1 ]; then
-            bad_certs_found=1
-            certs_to_delete+=("$cert_name")
-            log_error "Certificate '$cert_name' has incorrect SAN entries:"
-            printf "%b" "$bad_entries" | while IFS= read -r line; do
-                [ -n "$line" ] && log_error "$line"
-            done
-        else
-            log_success "Certificate '$cert_name' has correct SAN entries"
-        fi
-    done
-    
-    if [ "$bad_certs_found" -eq 1 ]; then
-        log_error "Certificates with incorrect SAN entries detected - these must be deleted before upgrade"
-        log_error "  The operator will automatically recreate them with correct SAN entries"
-    else
-        log_success "All checked certificates have correct SAN entries"
-    fi
-}
-
-check_version_compatibility() {
-    print_header "Version Compatibility Check"
-    
-    # Get current WO version from VERSION column (column 2)
-    local current_wo_ver=$(oc get watsonxorchestrates -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | awk 'NR==1{print $2}')
-    if [ -n "$current_wo_ver" ]; then
-        log_success "Current Watson Orchestrate version: $current_wo_ver"
-    else
-        log_warning "Could not determine current Watson Orchestrate version"
-    fi
-    
-    # Get CPD platform version
-    local cpd_ver=$(oc get zenservices lite-cr -n "$PROJECT_CPD_INST_OPERANDS" --no-headers 2>/dev/null | awk '{print $2}')
-    if [ -n "$cpd_ver" ]; then
-        log_success "Current Cloud Pak for Data version: $cpd_ver"
-    else
-        log_warning "Could not determine Cloud Pak for Data version"
-    fi
-    
-    # Get OpenShift version
-    local ocp_ver=$(oc get clusterversion version -o jsonpath='{.status.desired.version}' 2>/dev/null || echo 'unknown')
-    if [ "$ocp_ver" != "unknown" ]; then
-        log_success "OpenShift version: $ocp_ver"
-        
-        # Check if OCP version is supported (basic check for 4.x)
-        local ocp_major=$(echo "$ocp_ver" | cut -d. -f1)
-        local ocp_minor=$(echo "$ocp_ver" | cut -d. -f2)
-        
-        if [ "$ocp_major" = "4" ] && [ "$ocp_minor" -ge 12 ]; then
-            log_success "OpenShift version is supported (4.12+)"
-        else
-            log_warning "OpenShift version may not be supported - verify compatibility"
-        fi
-    else
-        log_warning "Could not determine OpenShift version"
-    fi
-}
-
 main() {
-    local mode_text="Pre-Installation"
-    if [ "$MODE" = "upgrade" ]; then
-        mode_text="Pre-Upgrade"
-    fi
-    
-    log_info "Starting Watson Orchestrate $mode_text Prerequisite Check"
+    log_info "Starting Watson Orchestrate Pre-Installation Prerequisite Check"
     log_info "Timestamp: $(date)"
     log_info "Log file: $LOG_FILE"
     log ""
     log_info "Configurations:"
-    log_info "   Check Mode: $MODE"
-    if [ -n "$VERSION" ]; then
-        log_info "   Watson Orchestrate Version: $VERSION"
-    fi
+    log_info "   Watson Orchestrate Version: $VERSION"
     log_info "   Operator Namespace: $PROJECT_CPD_INST_OPERATORS"
     log_info "   Operand Namespace: $PROJECT_CPD_INST_OPERANDS"
-    if [ -n "$INSTALLATION_TYPE" ]; then
-        log_info "   Installation Type: $INSTALLATION_TYPE"
-    fi
-    if [ -n "$INTERNAL_IFM" ]; then
-        log_info "   Internal IFM: $INTERNAL_IFM"
-    fi
+    log_info "   Installation Type: $INSTALLATION_TYPE"
+    log_info "   Internal IFM: $INTERNAL_IFM"
     
+    # Run all checks
     check_oc_login
     check_cluster_version
     check_worker_nodes
-    
-    # Skip storage class validation in upgrade mode (already installed)
-    if [ "$MODE" = "install" ]; then
-        check_storage_classes
-        check_prerequisites
-    fi    
+    check_storage_classes
+    check_prerequisites
     check_software_hub_instance
     
-    # Check OpenShift AI operator and GPU support only if internal IFM is enabled (or in upgrade mode)
+    # Check OpenShift AI operator and GPU support only if internal IFM is enabled
     if [ "$INTERNAL_IFM" = "true" ]; then
         check_openshift_ai_operator
-        if [ "$INTERNAL_IFM" = "true" ]; then
-            check_gpu_support
-        fi
+        check_gpu_support
     fi
-
-    # Skip Multicloud Object Gateway (MCG) Storage validation in upgrade mode (already installed)
-    if [ "$MODE" = "install" ]; then
-        check_mcg_storage
-    fi
-
-    # Skip Knative Eventing check for 'agentic' installation type (or check in upgrade mode)
-    if [ "$INSTALLATION_TYPE" != "agentic" ] || [ "$MODE" = "upgrade" ]; then
+    
+    check_mcg_storage
+    
+    # Skip Knative Eventing check for 'agentic' installation type
+    if [ "$INSTALLATION_TYPE" != "agentic" ]; then
         check_knative_eventing
     fi
     
     check_watson_assistant_standalone
-    
-    # Run upgrade-specific checks if in upgrade mode
-    if [ "$MODE" = "upgrade" ]; then
-        check_version_compatibility
-        check_certificate_san_entries
-        check_image_overrides
-        check_upgrade_prerequisites
-    fi
     
     # Print summary
     print_summary
