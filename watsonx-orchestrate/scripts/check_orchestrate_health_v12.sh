@@ -65,6 +65,7 @@
 #    -d, --debug                            Enable debug mode
 #    -r, --run-id RUN_ID                    Trace a run_id across WO pods and exit
 #    -g, --grep TEXT                        Search TEXT in all pod logs and exit
+#    -o, --output [FILE]                    Tee all output to FILE (auto-named with timestamp if FILE omitted)
 #    -h, --help                             Show help message
 #
 #  Environment Variables (set to 0 to disable specific checks):
@@ -131,6 +132,8 @@ ASSUME_EDITION=""
 # run_id trace mode - disabled by default
 TRACE_RUN_ID=""
 GREP_TEXT=""
+OUTPUT_FILE=""       # path to tee output to; empty = no file capture
+OUTPUT_FILE_AUTO=0  # 1 = -o was given without a filename → auto-generate
 
 # Log noise patterns to exclude from error output (one grep -v per pattern)
 # These are known harmless messages that match error keywords but are not actionable
@@ -168,10 +171,30 @@ while [ $# -gt 0 ]; do
     -d|--debug) DEBUG_MODE=1; shift 1 ;;
     -r|--run-id) TRACE_RUN_ID="$2"; shift 2 ;;
     -g|--grep) GREP_TEXT="$2"; shift 2 ;;
+    -o|--output)
+      # Optional filename: if next arg exists and doesn't start with '-', use it
+      if [ $# -gt 1 ] && [ "${2#-}" = "$2" ] && [ -n "$2" ]; then
+        OUTPUT_FILE="$2"; shift 2
+      else
+        OUTPUT_FILE_AUTO=1; shift 1
+      fi
+      ;;
     -h|--help) sed -n "1,$(awk '/^[^#]/{print NR-1; exit}' "$0")p" "$0"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+# -------------------- Output capture setup ------------------
+# Must run after arg parsing so OUTPUT_FILE / OUTPUT_FILE_AUTO are set.
+if [ "${OUTPUT_FILE_AUTO:-0}" -eq 1 ]; then
+  OUTPUT_FILE="wo_health_$(date '+%Y%m%d_%H%M%S').log"
+fi
+if [ -n "${OUTPUT_FILE:-}" ]; then
+  # tee stdout+stderr to the file while still printing to terminal
+  exec > >(tee "$OUTPUT_FILE") 2>&1
+  echo "📄 Output is being captured to: $OUTPUT_FILE"
+  echo ""
+fi
 
 # ------------------------ Utilities -------------------------
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
