@@ -988,43 +988,33 @@ grep_pods() {
   # ---- Scope prompt ----
   echo "Which pods should be searched?"
   echo ""
-  echo "  1) Orchestrate pods only  (wo-*, excluding Watson Assistant)  [default]"
-  echo "  2) Orchestrate + Assistant  (wo-*)"
-  echo "  3) All pods in namespace"
+  echo "  1) Orchestrate  (wo-*, excluding Watson Assistant)  [default]"
+  echo "  2) Orchestrate + Assistant Builder  (wo-*)"
+  echo "  3) Orchestrate + Assistant Builder + CPD  (wo-*, zen-*, ibm-nginx*, platform-*, usermgmt*, common-*)"
   echo ""
   printf "Enter choice (1-3) [default: 1, auto in ${USER_INPUT_TIMEOUT}s]: "
   if read -t "$USER_INPUT_TIMEOUT" _gscope </dev/tty 2>/dev/null; then : ; else
-    _gscope=""; echo; echo "  ⏱️  No input, using default: Orchestrate pods only."
+    _gscope=""; echo; echo "  ⏱️  No input, using default: Orchestrate."
   fi
   case "${_gscope:-1}" in
-    2) _gscope_desc="Orchestrate + Assistant pods" ;;
-    3) _gscope_desc="all pods" ;;
-    *) _gscope_desc="Orchestrate pods (wo-wa-* last)" ;;
+    2) _gscope_desc="Orchestrate + Assistant Builder" ;;
+    3) _gscope_desc="Orchestrate + Assistant Builder + CPD" ;;
+    *) _gscope_desc="Orchestrate (excl. Watson Assistant)" ;;
   esac
 
   echo ""
   echo "▶ Searching $_gscope_desc for '$text' (last $_gtdesc)..."
   echo ""
 
-  # Build ordered pod list: wo- (non-wo-wa-) first, wo-wa- last, then others if scope=3
+  # Build ordered pod list: wo- (non-wo-wa-) first, wo-wa- second, CPD last
   _all_ns_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || _all_ns_pods=""
+  _wo_pods=$(echo "$_all_ns_pods"   | grep '^wo-' | grep -v '^wo-wa-' || true)
+  _wowa_pods=$(echo "$_all_ns_pods" | grep '^wo-wa-'                   || true)
+  _cpd_pods=$(echo "$_all_ns_pods"  | grep -E '^(zen-|ibm-nginx|platform-|usermgmt|common-)' || true)
   case "${_gscope:-1}" in
-    3)
-      # all pods: wo- (non-wo-wa-) → wo-wa- → everything else
-      _wo_pods=$(echo "$_all_ns_pods"      | grep '^wo-'     | grep -v '^wo-wa-' || true)
-      _wowa_pods=$(echo "$_all_ns_pods"    | grep '^wo-wa-'                       || true)
-      _other_pods=$(echo "$_all_ns_pods"   | grep -v '^wo-'                       || true)
-      all_pods=$(printf '%s\n%s\n%s' "$_wo_pods" "$_wowa_pods" "$_other_pods" | grep -v '^$' || true)
-      ;;
-    *)
-      # options 1 and 2: wo- (non-wo-wa-) first, wo-wa- last
-      _wo_pods=$(echo "$_all_ns_pods"   | grep '^wo-' | grep -v '^wo-wa-' || true)
-      _wowa_pods=$(echo "$_all_ns_pods" | grep '^wo-wa-'                   || true)
-      case "${_gscope:-1}" in
-        2) all_pods=$(printf '%s\n%s' "$_wo_pods" "$_wowa_pods" | grep -v '^$' || true) ;;
-        *) all_pods=$(printf '%s'     "$_wo_pods"               | grep -v '^$' || true) ;;
-      esac
-      ;;
+    3) all_pods=$(printf '%s\n%s\n%s' "$_wo_pods" "$_wowa_pods" "$_cpd_pods" | grep -v '^$' || true) ;;
+    2) all_pods=$(printf '%s\n%s'     "$_wo_pods" "$_wowa_pods"              | grep -v '^$' || true) ;;
+    *) all_pods=$(printf '%s'         "$_wo_pods"                            | grep -v '^$' || true) ;;
   esac
   total_hits=0
 
