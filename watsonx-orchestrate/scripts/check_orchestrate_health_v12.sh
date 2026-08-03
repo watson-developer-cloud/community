@@ -63,7 +63,9 @@
 #        --assume-agentic-skills-assistant  Assume agentic_skills_assistant edition
 #    -y, --yes                              Bypass troubleshoot mode warning prompt
 #    -d, --debug                            Enable debug mode
-#    -r, --run-id RUN_ID                    Trace a run_id across WO pods and exit
+#    -r, --run-id [RUN_ID]                  Trace a run_id across WO pods and exit
+#                                           (omit RUN_ID for interactive discovery mode)
+#        --trace                            Alias for -r with no RUN_ID (interactive mode)
 #    -g, --grep TEXT                        Search TEXT in all pod logs and exit
 #    -o, --output [FILE]                    Tee all output to FILE (auto-named with timestamp if FILE omitted)
 #    -h, --help                             Show help message
@@ -131,6 +133,7 @@ ASSUME_EDITION=""
 : "${CHECK_PERMISSIONS_MODE:=0}"
 # run_id trace mode - disabled by default
 TRACE_RUN_ID=""
+TRACE_RUN_ID_MODE=0   # 1 = -r was given (with or without a UUID)
 GREP_TEXT=""
 OUTPUT_FILE=""       # path to tee output to; empty = no file capture
 OUTPUT_FILE_AUTO=0  # 1 = -o was given without a filename → auto-generate
@@ -169,8 +172,23 @@ while [ $# -gt 0 ]; do
     -p|--check-permissions) CHECK_PERMISSIONS_MODE=1; shift 1 ;;
     -y|--yes) SKIP_WARNING=1; shift 1 ;;
     -d|--debug) DEBUG_MODE=1; shift 1 ;;
-    -r|--run-id) TRACE_RUN_ID="$2"; shift 2 ;;
-    -g|--grep) GREP_TEXT="$2"; shift 2 ;;
+    -r|--run-id|--trace)
+      TRACE_RUN_ID_MODE=1
+      # UUID is optional — only consume next arg if it looks like one
+      if [ $# -gt 1 ] && echo "$2" | grep -qE '^[0-9a-fA-F]{8}-'; then
+        TRACE_RUN_ID="$2"; shift 2
+      else
+        TRACE_RUN_ID=""; shift 1
+      fi
+      ;;
+    -g|--grep)
+      # TEXT is required — but guard against missing arg to avoid unbound variable
+      if [ $# -gt 1 ] && [ -n "$2" ] && [ "${2#-}" != "" ]; then
+        GREP_TEXT="$2"; shift 2
+      else
+        echo "Error: -g/--grep requires a search text argument." >&2; exit 2
+      fi
+      ;;
     -o|--output)
       # Optional filename: if next arg exists and doesn't start with '-', use it
       if [ $# -gt 1 ] && [ "${2#-}" = "$2" ] && [ -n "$2" ]; then
@@ -190,8 +208,13 @@ if [ "${OUTPUT_FILE_AUTO:-0}" -eq 1 ]; then
   OUTPUT_FILE="wo_health_$(date '+%Y%m%d_%H%M%S').log"
 fi
 if [ -n "${OUTPUT_FILE:-}" ]; then
-  # tee stdout+stderr to the file while still printing to terminal
-  exec > >(tee "$OUTPUT_FILE") 2>&1
+  # tee stdout+stderr to file — use a FIFO so this works under /bin/sh (no process substitution)
+  _tee_fifo=$(mktemp -u 2>/dev/null || echo "/tmp/wo_tee_fifo.$$")
+  mkfifo "$_tee_fifo"
+  tee "$OUTPUT_FILE" < "$_tee_fifo" &
+  _tee_pid=$!
+  exec > "$_tee_fifo" 2>&1
+  rm -f "$_tee_fifo"   # unlink name; the pipe stays open until both ends close
   echo "📄 Output is being captured to: $OUTPUT_FILE"
   echo ""
 fi
@@ -547,130 +570,367 @@ run_permissions_check() {
 
 
 # =====================================================================
-#  trace_run_id  –  search every WO pod's logs for a given run_id
+#  trace_run_id  –  interactive run_id tracer
 # =====================================================================
 #
-# Pods searched in request-flow order (the order a message travels
-# through the system from the user's browser to the database):
-#
-#  ┌─────────────────────────────────────────────────────────────────┐
-#  │  INGRESS  (user message arrives here first)                      │
-#  │    1. socket-handler        – WebSocket/SSE from browser/UI      │
-#  │    2. channel-integrations  – HAA / external channels (Slack…)   │
-#  ├─────────────────────────────────────────────────────────────────┤
-#  │  ORCHESTRATION  (run is created & owned here)                    │
-#  │    3. archer-server         – creates run_id, streams events     │
-#  │    4. agentic-task-manager  – executes flows, drives the graph   │
-#  ├─────────────────────────────────────────────────────────────────┤
-#  │  AI / LLM  (LLM calls dispatched from ATM)                       │
-#  │    5. ai-gateway            – routes LLM requests                │
-#  ├─────────────────────────────────────────────────────────────────┤
-#  │  SKILL / TOOL EXECUTION  (ATM calls into this layer)             │
-#  │    6. wo-skills-server      – skill invocation gateway           │
-#  │    7. tools-runtime-manager – tool routing & LangGraph adapter   │
-#  │    8. openapi-provider      – executes OpenAPI / HTTP tool calls │
-#  │    9. multi-skill-orchestration – parallel/sequential MSO flows  │
-#  ├─────────────────────────────────────────────────────────────────┤
-#  │  SUPPORT SERVICES  (called by multiple layers above)             │
-#  │   10. wo-connection-manager – credential resolution              │
-#  │   11. pgbouncer             – DB proxy (all run state in PG)     │
-#  └─────────────────────────────────────────────────────────────────┘
-#
-# All other running pods are also checked as a catch-all.
+# Interactive flow:
+#   1. Prompts for time window (how far back to look)
+#   2. Prompts for how many recent run_ids to discover
+#   3. Discovers run_ids from the two source-of-truth pods:
+#        archer-server  (creates run_id on every agent invocation)
+#        agentic-task-manager  (executes the run)
+#   4. Lists them and asks which to trace (single, range, or all)
+#   5. Searches only the relevant pods in request-flow order:
+#        INGRESS      socket-handler, channel-integrations
+#        ORCHESTRATE  archer-server, agentic-task-manager
+#        AI/LLM       ai-gateway
+#        SKILL/TOOL   skill-server, tools-runtime-manager,
+#                     openapi-provider, multi-skill-orchestration
+#        SUPPORT      connection-manager, pgbouncer
+#   6. Prints ONLY pods that have hits, with log lines numbered
 # =====================================================================
 trace_run_id() {
-  run_id="$1"
+  # optional pre-supplied run_id (from -r flag); empty = interactive discovery
+  _supplied_run_id="${1:-}"
   ns="${PROJECT_CPD_INST_OPERANDS}"
   OCN="$OC -n $ns"
 
-  # Validate UUID-ish pattern
-  case "$run_id" in
-    [0-9a-fA-F]*-[0-9a-fA-F]*) : ;;  # looks like a UUID
-    *)
-      echo "❌  '$run_id' does not look like a UUID. Please pass the full run_id." >&2
-      exit 2
-      ;;
-  esac
+  # Pod substrings in request-flow order (only these are searched)
+  _TRACE_PODS="socket-handler channel-integrations archer-server agentic-task-manager ai-gateway wo-skill-server tools-runtime-manager openapi-provider multi-skill-orchestration wo-connection-manager pgbouncer"
+
+  # Pods used as source-of-truth for run_id discovery
+  _DISCOVERY_PODS="archer-server agentic-task-manager"
 
   echo ""
   echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-  echo "║                       run_id Trace Mode                                      ║"
+  print_box_center_line "run_id Trace Mode"
   echo "╠══════════════════════════════════════════════════════════════════════════════╣"
   printf "║ Namespace : %-64s║\n" "$ns"
-  printf "║ run_id    : %-64s║\n" "$run_id"
-  echo "║                                                                              ║"
-  echo "║ Searching pod logs in request-flow order. This may take a minute.            ║"
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
 
-  # Pod name substrings in request-flow order:
-  #   ingress → orchestration → AI/LLM → skill/tool execution → support
-  PRIORITY_PODS="socket-handler channel-integrations archer-server agentic-task-manager ai-gateway wo-skills-server tools-runtime-manager openapi-provider multi-skill-orchestration wo-connection-manager pgbouncer"
-
-  total_hits=0
-  checked_pods=""
-
-  # ---- helper: search one pod ----
-  search_pod() {
-    pod="$1"
-    pod_status=$($OCN get pod "$pod" --no-headers 2>/dev/null | awk '{print $3}')
-    # skip pods that are not in a log-readable state
-    case "$pod_status" in
-      Running|Completed|CrashLoopBackOff|Error) : ;;
-      *) return 0 ;;
+  # ------------------------------------------------------------------
+  # If a specific run_id was supplied via -r, skip discovery entirely
+  # ------------------------------------------------------------------
+  if [ -n "$_supplied_run_id" ]; then
+    case "$_supplied_run_id" in
+      [0-9a-fA-F]*-[0-9a-fA-F]*) : ;;
+      *) echo "❌  '$_supplied_run_id' does not look like a UUID." >&2; exit 2 ;;
     esac
 
-    # fetch logs (last 5000 lines; ignore errors for completed/crashed pods)
-    log_lines=$($OCN logs "$pod" --tail=5000 2>/dev/null | grep -F "$run_id" | head -30 || true)
-    if [ -n "$log_lines" ]; then
-      hit_count=$(echo "$log_lines" | wc -l | tr -d ' ')
-      total_hits=$(( total_hits + hit_count ))
-      echo "  ✅  $pod  ($hit_count lines)"
-      echo "$log_lines" | sed 's/^/       /'
-      echo ""
-    else
-      echo "  ○   $pod  – not found"
+    # Still ask for time window
+    echo "Step 1 of 2 — How far back should logs be searched?"
+    echo ""
+    echo "  1) Last 1 minute"
+    echo "  2) Last 5 minutes"
+    echo "  3) Last 10 minutes"
+    echo "  4) Last 30 minutes"
+    echo "  5) Last 1 hour"
+    echo "  6) Last 6 hours"
+    echo "  7) Last 24 hours"
+    echo "  8) Custom (enter minutes)"
+    echo ""
+    printf "Enter choice (1-8) [default: 30 minutes, auto in ${USER_INPUT_TIMEOUT}s]: "
+    if read -t "$USER_INPUT_TIMEOUT" _tc </dev/tty 2>/dev/null; then : ; else
+      _tc=""; echo; echo "  ⏱️  No input, using default 30 minutes."
     fi
-  }
+    case "${_tc:-4}" in
+      1) _since="1m";   _tdesc="1 minute" ;;
+      2) _since="5m";   _tdesc="5 minutes" ;;
+      3) _since="10m";  _tdesc="10 minutes" ;;
+      4|"") _since="30m";  _tdesc="30 minutes" ;;
+      5) _since="1h";   _tdesc="1 hour" ;;
+      6) _since="6h";   _tdesc="6 hours" ;;
+      7) _since="24h";  _tdesc="24 hours" ;;
+      8)
+        printf "  Enter minutes: "; read -r _cm </dev/tty
+        if [ -n "$_cm" ] && [ "$_cm" -gt 0 ] 2>/dev/null; then
+          _since="${_cm}m"; _tdesc="$_cm minutes"
+        else
+          echo "  Invalid, using 30 minutes."; _since="30m"; _tdesc="30 minutes"
+        fi ;;
+      *) echo "  Invalid, using 30 minutes."; _since="30m"; _tdesc="30 minutes" ;;
+    esac
 
-  # ---- Step 1: pods in request-flow order ----
-  echo "▶ Checking pods in request-flow order"
-  echo "  (ingress → orchestration → AI/LLM → skill/tool → support)"
+    echo ""
+    echo "▶ Tracing run_id: $_supplied_run_id  (last $_tdesc)"
+    echo ""
+    _trace_single_run_id "$_supplied_run_id" "$_since" "$_tdesc"
+    return
+  fi
+
+  # ------------------------------------------------------------------
+  # Interactive discovery mode
+  # ------------------------------------------------------------------
+
+  # ---- Step 1: time window ----
+  echo "Step 1 of 2 — How far back should logs be searched for run_ids?"
   echo ""
+  echo "  1) Last 1 minute"
+  echo "  2) Last 5 minutes"
+  echo "  3) Last 10 minutes"
+  echo "  4) Last 30 minutes"
+  echo "  5) Last 1 hour"
+  echo "  6) Last 6 hours"
+  echo "  7) Last 24 hours"
+  echo "  8) Custom (enter minutes)"
+  echo ""
+  printf "Enter choice (1-8) [default: 30 minutes, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _tc </dev/tty 2>/dev/null; then : ; else
+    _tc=""; echo; echo "  ⏱️  No input, using default 30 minutes."
+  fi
+  case "${_tc:-4}" in
+    1) _since="1m";   _tdesc="1 minute" ;;
+    2) _since="5m";   _tdesc="5 minutes" ;;
+    3) _since="10m";  _tdesc="10 minutes" ;;
+    4|"") _since="30m";  _tdesc="30 minutes" ;;
+    5) _since="1h";   _tdesc="1 hour" ;;
+    6) _since="6h";   _tdesc="6 hours" ;;
+    7) _since="24h";  _tdesc="24 hours" ;;
+    8)
+      printf "  Enter minutes: "; read -r _cm </dev/tty
+      if [ -n "$_cm" ] && [ "$_cm" -gt 0 ] 2>/dev/null; then
+        _since="${_cm}m"; _tdesc="$_cm minutes"
+      else
+        echo "  Invalid, using 30 minutes."; _since="30m"; _tdesc="30 minutes"
+      fi ;;
+    *) echo "  Invalid, using 30 minutes."; _since="30m"; _tdesc="30 minutes" ;;
+  esac
+
+  echo ""
+  echo "  Time window: last $_tdesc  (--since=$_since)"
+  echo ""
+
+  # ---- Step 2: how many run_ids to discover ----
+  echo "Step 2 of 2 — How many recent run_ids should be discovered?"
+  echo ""
+  echo "  1)  Last  5 run_ids"
+  echo "  2)  Last 10 run_ids  (default)"
+  echo "  3)  Last 20 run_ids"
+  echo "  4)  Last 50 run_ids"
+  echo "  5)  Custom number"
+  echo ""
+  printf "Enter choice (1-5) [default: 10, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _rc </dev/tty 2>/dev/null; then : ; else
+    _rc=""; echo; echo "  ⏱️  No input, using default 10."
+  fi
+  case "${_rc:-2}" in
+    1) _max_ids=5 ;;
+    2|"") _max_ids=10 ;;
+    3) _max_ids=20 ;;
+    4) _max_ids=50 ;;
+    5)
+      printf "  Enter number: "; read -r _cn </dev/tty
+      if [ -n "$_cn" ] && [ "$_cn" -gt 0 ] 2>/dev/null; then
+        _max_ids="$_cn"
+      else
+        echo "  Invalid, using 10."; _max_ids=10
+      fi ;;
+    *) echo "  Invalid, using 10."; _max_ids=10 ;;
+  esac
+
+  echo ""
+  echo "  Will discover up to $_max_ids run_id(s) from the last $_tdesc."
+  echo ""
+
+  # ---- Discover run_ids from source-of-truth pods ----
+  echo "▶ Discovering run_ids from archer-server and agentic-task-manager pods..."
+  echo ""
+
+  _tmp_ids=$(mktemp 2>/dev/null || echo "/tmp/wo_trace_ids.$$")
+  : > "$_tmp_ids"
+
   all_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || all_pods=""
 
-  for key in $PRIORITY_PODS; do
-    matched=$(echo "$all_pods" | grep "$key" || true)
-    for pod in $matched; do
-      # skip if already checked (shouldn't happen at priority stage, but guard anyway)
-      case " $checked_pods " in *" $pod "*) continue ;; esac
-      checked_pods="$checked_pods $pod"
-      search_pod "$pod"
+  for _dkey in $_DISCOVERY_PODS; do
+    for _pod in $(echo "$all_pods" | grep "$_dkey" || true); do
+      _pod_status=$($OCN get pod "$_pod" --no-headers 2>/dev/null | awk '{print $3}')
+      case "$_pod_status" in Running|CrashLoopBackOff) : ;; *) continue ;; esac
+      printf "  Scanning %s ... " "$_pod"
+      $OCN logs "$_pod" --since="$_since" 2>/dev/null \
+        | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' \
+        | sort -u >> "$_tmp_ids" 2>/dev/null || true
+      echo "done"
     done
   done
 
-  # ---- Step 2: all remaining pods ----
+  # Deduplicate, newest-first: reverse so last-seen = most recent, then take top N
+  sort -u "$_tmp_ids" > "${_tmp_ids}.uniq"
+  # We can't do true timestamp ordering without parsing, so keep unique sorted list
+  # and take the last _max_ids (tail = lexicographically highest UUIDs ≈ most recent)
+  tail -"$_max_ids" "${_tmp_ids}.uniq" > "${_tmp_ids}.top"
+  rm -f "$_tmp_ids" "${_tmp_ids}.uniq"
+
+  if [ ! -s "${_tmp_ids}.top" ]; then
+    echo ""
+    echo "  ⚠️  No run_ids found in the last $_tdesc."
+    echo "     Try a longer time window or check that the pods are running."
+    rm -f "${_tmp_ids}.top"
+    return
+  fi
+
+  # ---- List discovered run_ids ----
   echo ""
-  echo "▶ Checking remaining pods"
+  echo "─────────────────────────────────────────────────────────────────"
+  echo "  Discovered run_ids (last $_tdesc, up to $_max_ids):"
   echo ""
-  for pod in $all_pods; do
-    case " $checked_pods " in *" $pod "*) continue ;; esac
-    checked_pods="$checked_pods $pod"
-    search_pod "$pod"
+  _idx=0
+  while IFS= read -r _rid; do
+    [ -z "$_rid" ] && continue
+    _idx=$(( _idx + 1 ))
+    printf "  %3d)  %s\n" "$_idx" "$_rid"
+  done < "${_tmp_ids}.top"
+  echo ""
+  echo "─────────────────────────────────────────────────────────────────"
+  echo ""
+  _total_discovered=$_idx
+
+  # ---- Ask which to trace ----
+  echo "Which run_id(s) should be traced?"
+  echo "  • Enter a single number  (e.g. 3)"
+  echo "  • Enter a range          (e.g. 1-5)"
+  echo "  • Enter 'all'            to trace all $_total_discovered"
+  echo "  • Enter a UUID directly  to trace a specific run_id not listed"
+  echo ""
+  printf "Your choice [default: all, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _sel </dev/tty 2>/dev/null; then : ; else
+    _sel="all"; echo; echo "  ⏱️  No input, tracing all."
+  fi
+  _sel="${_sel:-all}"
+
+  # Build list of run_ids to trace into a temp file
+  _tmp_trace=$(mktemp 2>/dev/null || echo "/tmp/wo_trace_sel.$$")
+  : > "$_tmp_trace"
+
+  case "$_sel" in
+    all|"")
+      cp "${_tmp_ids}.top" "$_tmp_trace"
+      ;;
+    *-*)
+      # range e.g. 2-5
+      _rstart=$(echo "$_sel" | cut -d- -f1)
+      _rend=$(echo "$_sel"   | cut -d- -f2)
+      if [ -n "$_rstart" ] && [ -n "$_rend" ] \
+          && [ "$_rstart" -ge 1 ] 2>/dev/null \
+          && [ "$_rend" -le "$_total_discovered" ] 2>/dev/null \
+          && [ "$_rstart" -le "$_rend" ] 2>/dev/null; then
+        awk "NR>=$_rstart && NR<=$_rend" "${_tmp_ids}.top" > "$_tmp_trace"
+      else
+        echo "  ❌ Invalid range. Tracing all."
+        cp "${_tmp_ids}.top" "$_tmp_trace"
+      fi
+      ;;
+    [0-9]*)
+      # single number or direct UUID
+      if echo "$_sel" | grep -qE '^[0-9]+$'; then
+        # numeric index
+        _chosen=$(awk "NR==$_sel" "${_tmp_ids}.top")
+        if [ -n "$_chosen" ]; then
+          echo "$_chosen" > "$_tmp_trace"
+        else
+          echo "  ❌ Invalid selection. Tracing all."
+          cp "${_tmp_ids}.top" "$_tmp_trace"
+        fi
+      else
+        # looks like a UUID typed directly
+        echo "$_sel" > "$_tmp_trace"
+      fi
+      ;;
+    *)
+      # treat as direct UUID
+      echo "$_sel" > "$_tmp_trace"
+      ;;
+  esac
+
+  rm -f "${_tmp_ids}.top"
+
+  _trace_count=$(wc -l < "$_tmp_trace" | tr -d ' ')
+  echo ""
+  echo "▶ Tracing $_trace_count run_id(s) across request-flow pods (last $_tdesc)..."
+  echo ""
+
+  _grand_total=0
+  _tmp_hitcount=$(mktemp 2>/dev/null || echo "/tmp/wo_trace_hits.$$")
+  while IFS= read -r _rid; do
+    [ -z "$_rid" ] && continue
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  run_id: $_rid"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    _trace_single_run_id "$_rid" "$_since" "$_tdesc" "$_tmp_hitcount"
+    _hits=$(cat "$_tmp_hitcount" 2>/dev/null || echo 0)
+    _grand_total=$(( _grand_total + _hits ))
+    echo ""
+  done < "$_tmp_trace"
+
+  rm -f "$_tmp_trace" "$_tmp_hitcount"
+
+  echo "═════════════════════════════════════════════════════════════════"
+  echo "  Grand total: $_grand_total log line(s) across all traced run_ids."
+  echo "═════════════════════════════════════════════════════════════════"
+  echo ""
+}
+
+# =====================================================================
+#  _trace_single_run_id  –  search only the relevant WO pods for one
+#  run_id, printing ONLY pods that have hits (with numbered log lines).
+#  $4 = path to a file where the integer hit count is written.
+# =====================================================================
+_trace_single_run_id() {
+  _tr_id="$1"
+  _tr_since="$2"
+  _tr_tdesc="$3"
+  _tr_hitfile="${4:-}"
+  ns="${PROJECT_CPD_INST_OPERANDS}"
+  OCN="$OC -n $ns"
+
+  # Request-flow order — only these pod name substrings are searched
+  _TRACE_PODS="socket-handler channel-integrations archer-server agentic-task-manager ai-gateway wo-skill-server tools-runtime-manager openapi-provider multi-skill-orchestration wo-connection-manager pgbouncer"
+
+  _tr_total=0
+  all_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || all_pods=""
+
+  for _key in $_TRACE_PODS; do
+    for _pod in $(echo "$all_pods" | grep "$_key" || true); do
+      _pod_status=$($OCN get pod "$_pod" --no-headers 2>/dev/null | awk '{print $3}')
+      case "$_pod_status" in
+        Running|Completed|CrashLoopBackOff|Error) : ;;
+        *) continue ;;
+      esac
+
+      # Fetch logs within time window, grep for the run_id, write to temp file
+      _tmp_podlog=$(mktemp 2>/dev/null || echo "/tmp/wo_trace_log.$$")
+      $OCN logs "$_pod" --since="$_tr_since" 2>/dev/null \
+        | grep -F "$_tr_id" | head -50 > "$_tmp_podlog" || true
+
+      if [ ! -s "$_tmp_podlog" ]; then
+        rm -f "$_tmp_podlog"
+        continue   # silent skip — not found in this pod
+      fi
+
+      _hit_count=$(wc -l < "$_tmp_podlog" | tr -d ' ')
+      _tr_total=$(( _tr_total + _hit_count ))
+
+      printf "  ✅  %s  (%s lines, last %s)\n" "$_pod" "$_hit_count" "$_tr_tdesc"
+      _lnum=0
+      while IFS= read -r _line; do
+        _lnum=$(( _lnum + 1 ))
+        printf "       %3d│ %s\n" "$_lnum" "$_line"
+      done < "$_tmp_podlog"
+      rm -f "$_tmp_podlog"
+      echo ""
+    done
   done
 
-  # ---- Summary ----
-  echo ""
-  echo "─────────────────────────────────────────────────────────────────"
-  if [ "$total_hits" -eq 0 ]; then
-    echo "  ⚠️   run_id '$run_id' was not found in any pod logs."
-    echo "      The run may have completed before logs were collected,"
-    echo "      or the pods may have been recycled."
+  if [ "$_tr_total" -eq 0 ]; then
+    echo "  ⚠️   Not found in any request-flow pod within last $_tr_tdesc."
+    echo "      The run may predate the window or its pods may have recycled."
   else
-    echo "  ✅  Found $total_hits log line(s) referencing run_id '$run_id'."
+    echo "  ──  $_tr_total line(s) total for this run_id."
   fi
-  echo "─────────────────────────────────────────────────────────────────"
-  echo ""
+
+  # Write hit count to file so caller (not in subshell) can aggregate
+  [ -n "$_tr_hitfile" ] && echo "$_tr_total" > "$_tr_hitfile"
 }
 
 # =====================================================================
@@ -687,12 +947,85 @@ grep_pods() {
   echo "╠══════════════════════════════════════════════════════════════════════════════╣"
   printf "║ Namespace : %-64s║\n" "$ns"
   printf "║ Pattern   : %-64s║\n" "$text"
-  echo "║                                                                              ║"
-  echo "║ Searching all pod logs. This may take a minute.                              ║"
+  printf "║ Mode      : %-64s║\n" "extended regex (-E), e.g. error|warn  or  erro*"
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
 
-  all_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || all_pods=""
+  # ---- Time window prompt ----
+  echo "How far back should logs be searched?"
+  echo ""
+  echo "  1) Last 1 minute"
+  echo "  2) Last 5 minutes"
+  echo "  3) Last 10 minutes"
+  echo "  4) Last 30 minutes"
+  echo "  5) Last 1 hour"
+  echo "  6) Last 6 hours"
+  echo "  7) Last 24 hours"
+  echo "  8) Custom (enter minutes)"
+  echo ""
+  printf "Enter choice (1-8) [default: 30 minutes, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _gtc </dev/tty 2>/dev/null; then : ; else
+    _gtc=""; echo; echo "  ⏱️  No input, using default 30 minutes."
+  fi
+  case "${_gtc:-4}" in
+    1) _gsince="1m";  _gtdesc="1 minute" ;;
+    2) _gsince="5m";  _gtdesc="5 minutes" ;;
+    3) _gsince="10m"; _gtdesc="10 minutes" ;;
+    4|"") _gsince="30m"; _gtdesc="30 minutes" ;;
+    5) _gsince="1h";  _gtdesc="1 hour" ;;
+    6) _gsince="6h";  _gtdesc="6 hours" ;;
+    7) _gsince="24h"; _gtdesc="24 hours" ;;
+    8)
+      printf "  Enter minutes: "; read -r _gcm </dev/tty
+      if [ -n "$_gcm" ] && [ "$_gcm" -gt 0 ] 2>/dev/null; then
+        _gsince="${_gcm}m"; _gtdesc="$_gcm minutes"
+      else
+        echo "  Invalid, using 30 minutes."; _gsince="30m"; _gtdesc="30 minutes"
+      fi ;;
+    *) echo "  Invalid, using 30 minutes."; _gsince="30m"; _gtdesc="30 minutes" ;;
+  esac
+
+  # ---- Scope prompt ----
+  echo "Which pods should be searched?"
+  echo ""
+  echo "  1) Orchestrate pods only  (wo-*, excluding Watson Assistant)  [default]"
+  echo "  2) Orchestrate + Assistant  (wo-*)"
+  echo "  3) All pods in namespace"
+  echo ""
+  printf "Enter choice (1-3) [default: 1, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _gscope </dev/tty 2>/dev/null; then : ; else
+    _gscope=""; echo; echo "  ⏱️  No input, using default: Orchestrate pods only."
+  fi
+  case "${_gscope:-1}" in
+    2) _gscope_desc="Orchestrate + Assistant pods" ;;
+    3) _gscope_desc="all pods" ;;
+    *) _gscope_desc="Orchestrate pods (wo-wa-* last)" ;;
+  esac
+
+  echo ""
+  echo "▶ Searching $_gscope_desc for '$text' (last $_gtdesc)..."
+  echo ""
+
+  # Build ordered pod list: wo- (non-wo-wa-) first, wo-wa- last, then others if scope=3
+  _all_ns_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || _all_ns_pods=""
+  case "${_gscope:-1}" in
+    3)
+      # all pods: wo- (non-wo-wa-) → wo-wa- → everything else
+      _wo_pods=$(echo "$_all_ns_pods"      | grep '^wo-'     | grep -v '^wo-wa-' || true)
+      _wowa_pods=$(echo "$_all_ns_pods"    | grep '^wo-wa-'                       || true)
+      _other_pods=$(echo "$_all_ns_pods"   | grep -v '^wo-'                       || true)
+      all_pods=$(printf '%s\n%s\n%s' "$_wo_pods" "$_wowa_pods" "$_other_pods" | grep -v '^$' || true)
+      ;;
+    *)
+      # options 1 and 2: wo- (non-wo-wa-) first, wo-wa- last
+      _wo_pods=$(echo "$_all_ns_pods"   | grep '^wo-' | grep -v '^wo-wa-' || true)
+      _wowa_pods=$(echo "$_all_ns_pods" | grep '^wo-wa-'                   || true)
+      case "${_gscope:-1}" in
+        2) all_pods=$(printf '%s\n%s' "$_wo_pods" "$_wowa_pods" | grep -v '^$' || true) ;;
+        *) all_pods=$(printf '%s'     "$_wo_pods"               | grep -v '^$' || true) ;;
+      esac
+      ;;
+  esac
   total_hits=0
 
   for pod in $all_pods; do
@@ -702,24 +1035,32 @@ grep_pods() {
       *) continue ;;
     esac
 
-    log_lines=$($OCN logs "$pod" --tail=5000 2>/dev/null | grep -F "$text" | head -30 || true)
-    if [ -n "$log_lines" ]; then
-      hit_count=$(echo "$log_lines" | wc -l | tr -d ' ')
-      total_hits=$(( total_hits + hit_count ))
-      echo "  ✅  $pod  ($hit_count lines)"
-      echo "$log_lines" | sed 's/^/       /'
-      echo ""
-    else
-      echo "  ○   $pod  – not found"
+    _tmp_glog=$(mktemp 2>/dev/null || echo "/tmp/wo_grep_log.$$")
+    $OCN logs "$pod" --since="$_gsince" 2>/dev/null \
+      | grep -E "$text" | head -50 > "$_tmp_glog" || true
+
+    if [ ! -s "$_tmp_glog" ]; then
+      rm -f "$_tmp_glog"
+      continue   # silent skip — not found in this pod
     fi
+
+    hit_count=$(wc -l < "$_tmp_glog" | tr -d ' ')
+    total_hits=$(( total_hits + hit_count ))
+    printf "  ✅  %s  (%s lines, last %s)\n" "$pod" "$hit_count" "$_gtdesc"
+    _lnum=0
+    while IFS= read -r _line; do
+      _lnum=$(( _lnum + 1 ))
+      printf "       %3d│ %s\n" "$_lnum" "$_line"
+    done < "$_tmp_glog"
+    rm -f "$_tmp_glog"
+    echo ""
   done
 
-  echo ""
   echo "─────────────────────────────────────────────────────────────────"
   if [ "$total_hits" -eq 0 ]; then
-    echo "  ⚠️   '$text' was not found in any pod logs."
+    echo "  ⚠️   '$text' was not found in $_gscope_desc (last $_gtdesc)."
   else
-    echo "  ✅  Found $total_hits log line(s) matching '$text'."
+    echo "  ✅  Found $total_hits log line(s) matching '$text' in $_gscope_desc (last $_gtdesc)."
   fi
   echo "─────────────────────────────────────────────────────────────────"
   echo ""
@@ -5564,8 +5905,10 @@ fi
 detect_wxo_edition
 
 # Run run_id trace mode if requested (exits after completion)
-if [ -n "${TRACE_RUN_ID:-}" ]; then
-  trace_run_id "$TRACE_RUN_ID"
+# -r with a UUID   → pass it straight to trace_run_id (skips discovery)
+# -r alone         → interactive discovery mode
+if [ "${TRACE_RUN_ID_MODE:-0}" -eq 1 ] || [ -n "${TRACE_RUN_ID:-}" ]; then
+  trace_run_id "${TRACE_RUN_ID:-}"
   exit 0
 fi
 
