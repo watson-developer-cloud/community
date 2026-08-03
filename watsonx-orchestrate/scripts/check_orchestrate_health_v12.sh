@@ -988,9 +988,9 @@ grep_pods() {
   # ---- Scope prompt ----
   echo "Which pods should be searched?"
   echo ""
-  echo "  1) Orchestrate  (wo-*, excluding Watson Assistant)  [default]"
-  echo "  2) Orchestrate + Assistant Builder  (wo-*)"
-  echo "  3) Orchestrate + Assistant Builder + CPD  (wo-*, zen-*, ibm-nginx*, platform-*, usermgmt*, common-*)"
+  echo "  1) Orchestrate  (excluding Assistant Builder)  [default]"
+  echo "  2) Orchestrate + Assistant Builder"
+  echo "  3) Orchestrate + Assistant Builder + CPD"
   echo ""
   printf "Enter choice (1-3) [default: 1, auto in ${USER_INPUT_TIMEOUT}s]: "
   if read -t "$USER_INPUT_TIMEOUT" _gscope </dev/tty 2>/dev/null; then : ; else
