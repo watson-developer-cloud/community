@@ -524,18 +524,31 @@ run_permissions_check() {
 #  trace_run_id  –  search every WO pod's logs for a given run_id
 # =====================================================================
 #
-# Pods searched (ordered by most-likely to least-likely to hold logs):
-#   wxo-server (archer-server)   – creates & owns the run
-#   agentic-task-manager         – executes flows
-#   socket-handler               – SSE/WS events
-#   channel-integrations         – HAA / external channels
-#   wo-skills-server             – skill execution
-#   openapi-provider             – OpenAPI tool calls
-#   tools-runtime-manager        – tool routing
-#   wo-connection-manager        – connection calls
-#   multi-skill-orchestration    – orchestration
-#   ai-gateway                   – AI requests
-#   pgbouncer                    – DB proxy (run INSERT/UPDATE)
+# Pods searched in request-flow order (the order a message travels
+# through the system from the user's browser to the database):
+#
+#  ┌─────────────────────────────────────────────────────────────────┐
+#  │  INGRESS  (user message arrives here first)                      │
+#  │    1. socket-handler        – WebSocket/SSE from browser/UI      │
+#  │    2. channel-integrations  – HAA / external channels (Slack…)   │
+#  ├─────────────────────────────────────────────────────────────────┤
+#  │  ORCHESTRATION  (run is created & owned here)                    │
+#  │    3. archer-server         – creates run_id, streams events     │
+#  │    4. agentic-task-manager  – executes flows, drives the graph   │
+#  ├─────────────────────────────────────────────────────────────────┤
+#  │  AI / LLM  (LLM calls dispatched from ATM)                       │
+#  │    5. ai-gateway            – routes LLM requests                │
+#  ├─────────────────────────────────────────────────────────────────┤
+#  │  SKILL / TOOL EXECUTION  (ATM calls into this layer)             │
+#  │    6. wo-skills-server      – skill invocation gateway           │
+#  │    7. tools-runtime-manager – tool routing & LangGraph adapter   │
+#  │    8. openapi-provider      – executes OpenAPI / HTTP tool calls │
+#  │    9. multi-skill-orchestration – parallel/sequential MSO flows  │
+#  ├─────────────────────────────────────────────────────────────────┤
+#  │  SUPPORT SERVICES  (called by multiple layers above)             │
+#  │   10. wo-connection-manager – credential resolution              │
+#  │   11. pgbouncer             – DB proxy (all run state in PG)     │
+#  └─────────────────────────────────────────────────────────────────┘
 #
 # All other running pods are also checked as a catch-all.
 # =====================================================================
@@ -560,12 +573,13 @@ trace_run_id() {
   printf "║ Namespace : %-64s║\n" "$ns"
   printf "║ run_id    : %-64s║\n" "$run_id"
   echo "║                                                                              ║"
-  echo "║ Searching pod logs for the run_id. This may take a minute.                   ║"
+  echo "║ Searching pod logs in request-flow order. This may take a minute.            ║"
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
 
-  # Priority pod name substrings (checked first, in order)
-  PRIORITY_PODS="archer-server agentic-task-manager socket-handler channel-integrations wo-skills-server openapi-provider tools-runtime-manager wo-connection-manager multi-skill-orchestration ai-gateway pgbouncer"
+  # Pod name substrings in request-flow order:
+  #   ingress → orchestration → AI/LLM → skill/tool execution → support
+  PRIORITY_PODS="socket-handler channel-integrations archer-server agentic-task-manager ai-gateway wo-skills-server tools-runtime-manager openapi-provider multi-skill-orchestration wo-connection-manager pgbouncer"
 
   total_hits=0
   checked_pods=""
@@ -593,8 +607,9 @@ trace_run_id() {
     fi
   }
 
-  # ---- Step 1: priority pods ----
-  echo "▶ Checking priority pods first"
+  # ---- Step 1: pods in request-flow order ----
+  echo "▶ Checking pods in request-flow order"
+  echo "  (ingress → orchestration → AI/LLM → skill/tool → support)"
   echo ""
   all_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || all_pods=""
 
