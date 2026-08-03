@@ -64,6 +64,7 @@
 #    -y, --yes                              Bypass troubleshoot mode warning prompt
 #    -d, --debug                            Enable debug mode
 #    -r, --run-id RUN_ID                    Trace a run_id across WO pods and exit
+#    -g, --grep TEXT                        Search TEXT in all pod logs and exit
 #    -h, --help                             Show help message
 #
 #  Environment Variables (set to 0 to disable specific checks):
@@ -129,6 +130,7 @@ ASSUME_EDITION=""
 : "${CHECK_PERMISSIONS_MODE:=0}"
 # run_id trace mode - disabled by default
 TRACE_RUN_ID=""
+GREP_TEXT=""
 
 # Log noise patterns to exclude from error output (one grep -v per pattern)
 # These are known harmless messages that match error keywords but are not actionable
@@ -165,6 +167,7 @@ while [ $# -gt 0 ]; do
     -y|--yes) SKIP_WARNING=1; shift 1 ;;
     -d|--debug) DEBUG_MODE=1; shift 1 ;;
     -r|--run-id) TRACE_RUN_ID="$2"; shift 2 ;;
+    -g|--grep) GREP_TEXT="$2"; shift 2 ;;
     -h|--help) sed -n "1,$(awk '/^[^#]/{print NR-1; exit}' "$0")p" "$0"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -642,6 +645,58 @@ trace_run_id() {
     echo "      or the pods may have been recycled."
   else
     echo "  ✅  Found $total_hits log line(s) referencing run_id '$run_id'."
+  fi
+  echo "─────────────────────────────────────────────────────────────────"
+  echo ""
+}
+
+# =====================================================================
+#  grep_pods  –  search all running pods for an arbitrary text string
+# =====================================================================
+grep_pods() {
+  text="$1"
+  ns="${PROJECT_CPD_INST_OPERANDS}"
+  OCN="$OC -n $ns"
+
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                         Pod Log Grep Mode                                    ║"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+  printf "║ Namespace : %-64s║\n" "$ns"
+  printf "║ Pattern   : %-64s║\n" "$text"
+  echo "║                                                                              ║"
+  echo "║ Searching all pod logs. This may take a minute.                              ║"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+  echo ""
+
+  all_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || all_pods=""
+  total_hits=0
+
+  for pod in $all_pods; do
+    pod_status=$($OCN get pod "$pod" --no-headers 2>/dev/null | awk '{print $3}')
+    case "$pod_status" in
+      Running|Completed|CrashLoopBackOff|Error) : ;;
+      *) continue ;;
+    esac
+
+    log_lines=$($OCN logs "$pod" --tail=5000 2>/dev/null | grep -F "$text" | head -30 || true)
+    if [ -n "$log_lines" ]; then
+      hit_count=$(echo "$log_lines" | wc -l | tr -d ' ')
+      total_hits=$(( total_hits + hit_count ))
+      echo "  ✅  $pod  ($hit_count lines)"
+      echo "$log_lines" | sed 's/^/       /'
+      echo ""
+    else
+      echo "  ○   $pod  – not found"
+    fi
+  done
+
+  echo ""
+  echo "─────────────────────────────────────────────────────────────────"
+  if [ "$total_hits" -eq 0 ]; then
+    echo "  ⚠️   '$text' was not found in any pod logs."
+  else
+    echo "  ✅  Found $total_hits log line(s) matching '$text'."
   fi
   echo "─────────────────────────────────────────────────────────────────"
   echo ""
@@ -5488,6 +5543,12 @@ detect_wxo_edition
 # Run run_id trace mode if requested (exits after completion)
 if [ -n "${TRACE_RUN_ID:-}" ]; then
   trace_run_id "$TRACE_RUN_ID"
+  exit 0
+fi
+
+# Run pod grep mode if requested (exits after completion)
+if [ -n "${GREP_TEXT:-}" ]; then
+  grep_pods "$GREP_TEXT"
   exit 0
 fi
 
