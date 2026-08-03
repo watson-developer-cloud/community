@@ -802,27 +802,29 @@ trace_run_id() {
   _tmp_trace=$(mktemp 2>/dev/null || echo "/tmp/wo_trace_sel.$$")
   : > "$_tmp_trace"
 
-  case "$_sel" in
-    all|"")
-      cp "${_tmp_ids}.top" "$_tmp_trace"
-      ;;
-    *-*)
-      # range e.g. 2-5
-      _rstart=$(echo "$_sel" | cut -d- -f1)
-      _rend=$(echo "$_sel"   | cut -d- -f2)
-      if [ -n "$_rstart" ] && [ -n "$_rend" ] \
-          && [ "$_rstart" -ge 1 ] 2>/dev/null \
-          && [ "$_rend" -le "$_total_discovered" ] 2>/dev/null \
-          && [ "$_rstart" -le "$_rend" ] 2>/dev/null; then
-        awk "NR>=$_rstart && NR<=$_rend" "${_tmp_ids}.top" > "$_tmp_trace"
-      else
-        echo "  ❌ Invalid range. Tracing all."
+  # Check UUID pattern first — before range/number matching — since UUIDs contain '-'
+  if echo "$_sel" | grep -qE '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
+    echo "$_sel" > "$_tmp_trace"
+  else
+    case "$_sel" in
+      all|"")
         cp "${_tmp_ids}.top" "$_tmp_trace"
-      fi
-      ;;
-    [0-9]*)
-      # single number or direct UUID
-      if echo "$_sel" | grep -qE '^[0-9]+$'; then
+        ;;
+      *-*)
+        # numeric range e.g. 2-5
+        _rstart=$(echo "$_sel" | cut -d- -f1)
+        _rend=$(echo "$_sel"   | cut -d- -f2)
+        if [ -n "$_rstart" ] && [ -n "$_rend" ] \
+            && [ "$_rstart" -ge 1 ] 2>/dev/null \
+            && [ "$_rend" -le "$_total_discovered" ] 2>/dev/null \
+            && [ "$_rstart" -le "$_rend" ] 2>/dev/null; then
+          awk "NR>=$_rstart && NR<=$_rend" "${_tmp_ids}.top" > "$_tmp_trace"
+        else
+          echo "  ❌ Invalid range. Tracing all."
+          cp "${_tmp_ids}.top" "$_tmp_trace"
+        fi
+        ;;
+      [0-9]*)
         # numeric index
         _chosen=$(awk "NR==$_sel" "${_tmp_ids}.top")
         if [ -n "$_chosen" ]; then
@@ -831,16 +833,13 @@ trace_run_id() {
           echo "  ❌ Invalid selection. Tracing all."
           cp "${_tmp_ids}.top" "$_tmp_trace"
         fi
-      else
-        # looks like a UUID typed directly
-        echo "$_sel" > "$_tmp_trace"
-      fi
-      ;;
-    *)
-      # treat as direct UUID
-      echo "$_sel" > "$_tmp_trace"
-      ;;
-  esac
+        ;;
+      *)
+        echo "  ❌ Invalid input. Tracing all."
+        cp "${_tmp_ids}.top" "$_tmp_trace"
+        ;;
+    esac
+  fi
 
   rm -f "${_tmp_ids}.top"
 
