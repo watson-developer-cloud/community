@@ -52,17 +52,43 @@
 #    * Exits 1 if max tries exhausted without passing all checks
 #
 # USAGE:
-#  ./check_orchestrate_health_v5.sh [OPTIONS]
+#  ./check_orchestrate_health_v12.sh [OPTIONS]
 #
 #  Options:
 #    -t, --troubleshoot                     Enable troubleshoot mode with interactive remediation
 #    -c, --config                           Enable configuration mode to modify WO CR settings
 #    -n, --namespace NAMESPACE              Override operands namespace
+#    -p, --check-permissions                Check required OpenShift permissions and exit
 #        --assume-agentic                   Assume agentic edition
 #        --assume-agentic-skills-assistant  Assume agentic_skills_assistant edition
 #    -y, --yes                              Bypass troubleshoot mode warning prompt
 #    -d, --debug                            Enable debug mode
+#    -r, --run-id [RUN_ID]                  Trace a run_id across WO pods and exit
+#                                           (omit RUN_ID for interactive discovery mode)
+#        --trace                            Alias for -r with no RUN_ID (interactive mode)
+#    -g, --grep TEXT                        Search TEXT in all pod logs and exit
+#    -o, --output [FILE]                    Tee all output to FILE (auto-named with timestamp if FILE omitted)
 #    -h, --help                             Show help message
+#
+#  Environment Variables (set to 0 to disable specific checks):
+#    CHECK_OPERATORS=0                      Disable operator deployment checks
+#    CHECK_WO_PODS=0                        Disable wo-* pod checks
+#    CHECK_ALL_OPERAND_PODS=0               Disable all operand pod checks
+#    CHECK_WO_CR=0                          Disable WatsonxOrchestrate CR checks
+#    CHECK_WOCS=0                           Disable WatsonxOrchestrateCS CR checks
+#    CHECK_WA_CR=0                          Disable WatsonAssistant CR checks
+#    CHECK_IFM_CR=0                         Disable IFM CR checks
+#    CHECK_DOCPROC=0                        Disable DocProc CR checks
+#    CHECK_DE=0                             Disable DataExhaust CR checks
+#    CHECK_UAB_ADS=0                        Disable UAB/ADS CR checks
+#    CHECK_EDB=0                            Disable EDB Postgres checks
+#    CHECK_KAFKA=0                          Disable Kafka checks
+#    CHECK_REDIS=0                          Disable Redis checks
+#    CHECK_WXD=0                            Disable WatsonxData checks
+#    CHECK_OBC=0                            Disable OBC checks
+#    CHECK_STORAGE_PODS=0                   Disable storage pod checks
+#    CHECK_JOBS=0                           Disable job checks
+#    CHECK_KNATIVE_EVENTING=0               Disable Knative Eventing checks
 
 set -eu
 
@@ -76,6 +102,7 @@ OVERRIDE_NS="${OVERRIDE_NS:-}"
 ASSUME_EDITION=""
 
 # Enable or disable individual checks 1 enable, 0 disable
+: "${CHECK_OPERATORS:=1}"
 : "${CHECK_WO_PODS:=1}"
 : "${CHECK_ALL_OPERAND_PODS:=1}"
 : "${CHECK_WO_CR:=1}"
@@ -103,6 +130,13 @@ ASSUME_EDITION=""
 # Debug mode - disabled by default
 : "${DEBUG_MODE:=0}"
 : "${USER_INPUT_TIMEOUT:=20}"  # Timeout in seconds for user input prompts
+: "${CHECK_PERMISSIONS_MODE:=0}"
+# run_id trace mode - disabled by default
+TRACE_RUN_ID=""
+TRACE_RUN_ID_MODE=0   # 1 = -r was given (with or without a UUID)
+GREP_TEXT=""
+OUTPUT_FILE=""       # path to tee output to; empty = no file capture
+OUTPUT_FILE_AUTO=0  # 1 = -o was given without a filename → auto-generate
 
 # Log noise patterns to exclude from error output (one grep -v per pattern)
 # These are known harmless messages that match error keywords but are not actionable
@@ -135,12 +169,55 @@ while [ $# -gt 0 ]; do
     --assume-agentic-skills-assistant)  ASSUME_EDITION="agentic_skills_assistant"; shift 1 ;;
     -t|--troubleshoot) TROUBLESHOOT_MODE=1; shift 1 ;;
     -c|--config) CONFIG_MODE=1; shift 1 ;;
+    -p|--check-permissions) CHECK_PERMISSIONS_MODE=1; shift 1 ;;
     -y|--yes) SKIP_WARNING=1; shift 1 ;;
     -d|--debug) DEBUG_MODE=1; shift 1 ;;
+    -r|--run-id|--trace)
+      TRACE_RUN_ID_MODE=1
+      # UUID is optional — only consume next arg if it looks like one
+      if [ $# -gt 1 ] && echo "$2" | grep -qE '^[0-9a-fA-F]{8}-'; then
+        TRACE_RUN_ID="$2"; shift 2
+      else
+        TRACE_RUN_ID=""; shift 1
+      fi
+      ;;
+    -g|--grep)
+      # TEXT is required — but guard against missing arg to avoid unbound variable
+      if [ $# -gt 1 ] && [ -n "$2" ] && [ "${2#-}" != "" ]; then
+        GREP_TEXT="$2"; shift 2
+      else
+        echo "Error: -g/--grep requires a search text argument." >&2; exit 2
+      fi
+      ;;
+    -o|--output)
+      # Optional filename: if next arg exists and doesn't start with '-', use it
+      if [ $# -gt 1 ] && [ "${2#-}" = "$2" ] && [ -n "$2" ]; then
+        OUTPUT_FILE="$2"; shift 2
+      else
+        OUTPUT_FILE_AUTO=1; shift 1
+      fi
+      ;;
     -h|--help) sed -n "1,$(awk '/^[^#]/{print NR-1; exit}' "$0")p" "$0"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+# -------------------- Output capture setup ------------------
+# Must run after arg parsing so OUTPUT_FILE / OUTPUT_FILE_AUTO are set.
+if [ "${OUTPUT_FILE_AUTO:-0}" -eq 1 ]; then
+  OUTPUT_FILE="wo_health_$(date '+%Y%m%d_%H%M%S').log"
+fi
+if [ -n "${OUTPUT_FILE:-}" ]; then
+  # tee stdout+stderr to file — use a FIFO so this works under /bin/sh (no process substitution)
+  _tee_fifo=$(mktemp -u 2>/dev/null || echo "/tmp/wo_tee_fifo.$$")
+  mkfifo "$_tee_fifo"
+  tee "$OUTPUT_FILE" < "$_tee_fifo" &
+  _tee_pid=$!
+  exec > "$_tee_fifo" 2>&1
+  rm -f "$_tee_fifo"   # unlink name; the pipe stays open until both ends close
+  echo "📄 Output is being captured to: $OUTPUT_FILE"
+  echo ""
+fi
 
 # ------------------------ Utilities -------------------------
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
@@ -172,6 +249,810 @@ print_box_line() {
   printf '%s\n' "$box_text" | fold -s -w "$BOX_INNER_WIDTH" | while IFS= read -r box_line; do
     printf "║ %-${BOX_INNER_WIDTH}s ║\n" "$box_line"
   done
+}
+
+print_box_center_line() {
+  box_text=`sanitize_box_text "$1"`
+  box_len=${#box_text}
+  if [ "$box_len" -ge "$BOX_INNER_WIDTH" ]; then
+    print_box_line "$box_text"
+    return
+  fi
+  left_pad=$(( (BOX_INNER_WIDTH - box_len) / 2 ))
+  right_pad=$(( BOX_INNER_WIDTH - box_len - left_pad ))
+  printf "║ %*s%s%*s ║\n" "$left_pad" "" "$box_text" "$right_pad" ""
+}
+
+get_first_jsonpath_value() {
+  resource="$1"
+  name="$2"
+  shift 2
+
+  for jp in "$@"; do
+    val=`$OC -n "$PROJECT_CPD_INST_OPERANDS" get "$resource" "$name" -o "jsonpath=$jp" 2>/dev/null || :`
+    [ -n "$val" ] && [ "$val" != "null" ] && { printf '%s' "$val"; return 0; }
+  done
+  return 0
+}
+
+get_wo_registry_prefix() {
+  wo_name="$1"
+  get_first_jsonpath_value wo "$wo_name" \
+    '{.spec.image.registryPrefix}' \
+    '{.spec.image.dockerRegistryPrefix}' \
+    '{.spec.dockerRegistryPrefix}'
+}
+
+is_default_registry_prefix() {
+  case "$1" in
+    ""|cp.icr|cp.icr.io|cp.icr.io/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+print_wo_version_hotfix_info() {
+  wo_name="$1"
+
+  version=`$OC -n "$PROJECT_CPD_INST_OPERANDS" get wo "$wo_name" -o jsonpath='{.status.versionStatus.status}' 2>/dev/null || :`
+  version_path=".status.versionStatus.status"
+  if [ -z "$version" ] || [ "$version" = "null" ]; then
+    version=`$OC -n "$PROJECT_CPD_INST_OPERANDS" get wo "$wo_name" -o jsonpath='{.status.versions.reconciled}' 2>/dev/null || :`
+    version_path=".status.versions.reconciled"
+  fi
+  if [ -z "$version" ] || [ "$version" = "null" ]; then
+    version=`$OC -n "$PROJECT_CPD_INST_OPERANDS" get wo "$wo_name" -o jsonpath='{.spec.version}' 2>/dev/null || :`
+    version_path=".spec.version"
+  fi
+  [ -z "$version" ] && version="unknown"
+
+  hotfix=`get_first_jsonpath_value wo "$wo_name" \
+    '{.metadata.labels.hotfix}' \
+    '{.metadata.annotations.hotfix}'`
+
+  if [ -n "$hotfix" ]; then
+    print_box_line "Version: $version $hotfix"
+  else
+    print_box_line "Version: $version"
+  fi
+  print_box_line "  • wo$version_path=$version"
+  if [ -n "$hotfix" ]; then
+    print_box_line "  • wo.metadata.labels.hotfix=$hotfix"
+  else
+    print_box_line "  • wo.metadata.labels.hotfix=Not Present"
+  fi
+  print_box_blank
+}
+
+print_registry_prefix() {
+  wo_name="$1"
+  registry_prefix=`get_wo_registry_prefix "$wo_name"`
+  if [ -n "$registry_prefix" ]; then
+    print_box_line "Registry Prefix: $registry_prefix"
+    print_box_line "  • wo.spec.image.registryPrefix=$registry_prefix"
+  else
+    print_box_line "Registry Prefix: cp.icr.io (default)"
+    print_box_line "  • wo.spec.image.registryPrefix=Not Present"
+  fi
+  print_box_blank
+}
+
+append_hands_off_resource_names() {
+  resource="$1"
+  label="$2"
+  out_file="$3"
+
+  $OC -n "$PROJECT_CPD_INST_OPERANDS" get "$resource" -o json 2>/dev/null | \
+    jq -r --arg label "$label" \
+      '.items[]? | select(.metadata.annotations["wo.watsonx.ibm.com/hands-off"] == "true") | "  • " + $label + "/" + .metadata.name' \
+      >> "$out_file" 2>/dev/null || :
+}
+
+print_header_details_box() {
+  wo_name="$1"
+  tmp_hands_off_crs=`mktemp 2>/dev/null || echo "/tmp/wo_hands_off_crs.$$"`
+  tmp_hands_off_pods=`mktemp 2>/dev/null || echo "/tmp/wo_hands_off_pods.$$"`
+  tmp_hands_off_deployments=`mktemp 2>/dev/null || echo "/tmp/wo_hands_off_deployments.$$"`
+  tmp_hands_off_all=`mktemp 2>/dev/null || echo "/tmp/wo_hands_off_all.$$"`
+  tmp_size_mapping=`mktemp 2>/dev/null || echo "/tmp/wo_size_mapping.$$"`
+  tmp_digest_overrides=`mktemp 2>/dev/null || echo "/tmp/wo_digest_overrides.$$"`
+  : > "$tmp_hands_off_crs"
+  : > "$tmp_hands_off_pods"
+  : > "$tmp_hands_off_deployments"
+  : > "$tmp_hands_off_all"
+  : > "$tmp_size_mapping"
+  : > "$tmp_digest_overrides"
+
+  for spec in \
+    'wo::wo' \
+    'wocomponentservices.wo.watsonx.ibm.com::wocomponentservices' \
+    'wa::wa' \
+    'watsonxaiifm::watsonxaiifm' \
+    'documentprocessings.watsonx.ibm.com::documentprocessing' \
+    'digitalemployees.wo.watsonx.ibm.com::digitalemployee' \
+    'uabautomationdecisionservices.uab.ba.ibm.com::uabautomationdecisionservice' \
+    'clusters.postgresql.k8s.enterprisedb.io::postgres-cluster' \
+    'rediscps.redis.ibm.com::rediscp' \
+    'kafka::kafka' \
+    'kafkas.ibmevents.ibm.com::ibmevents-kafka' \
+    'kafkausers.ibmevents.ibm.com::kafkauser' \
+    'knativeeventings.operator.knative.dev::knativeeventing' \
+    'knativekafkas.operator.serverless.openshift.io::knativekafka' \
+    'brokers.eventing.knative.dev::broker' \
+    'triggers.eventing.knative.dev::trigger' \
+    'wxdengines.watsonxdata.ibm.com::wxdengine' \
+    'obc::obc' \
+    'noobaa::noobaa' \
+    'backingstores::backingstore' \
+    'operandrequests.operator.ibm.com::operandrequest' \
+    'zenextensions.zen.cpd.ibm.com::zenextension'
+  do
+    append_hands_off_resource_names "${spec%%::*}" "${spec#*::}" "$tmp_hands_off_crs"
+  done
+
+  $OC -n "$PROJECT_CPD_INST_OPERANDS" get pods -o json 2>/dev/null | \
+    jq -r '.items[]? | select(.metadata.annotations["wo.watsonx.ibm.com/hands-off"] == "true") | "  • pod/" + .metadata.name' \
+    > "$tmp_hands_off_pods" 2>/dev/null || :
+
+  $OC -n "$PROJECT_CPD_INST_OPERANDS" get deployments -o json 2>/dev/null | \
+    jq -r '.items[]? | select(.metadata.annotations["wo.watsonx.ibm.com/hands-off"] == "true") | "  • deployment/" + .metadata.name' \
+    > "$tmp_hands_off_deployments" 2>/dev/null || :
+
+  cat "$tmp_hands_off_crs" "$tmp_hands_off_pods" "$tmp_hands_off_deployments" > "$tmp_hands_off_all"
+
+  if [ -n "$wo_name" ]; then
+    $OC -n "$PROJECT_CPD_INST_OPERANDS" get wo "$wo_name" -o json 2>/dev/null | \
+      jq -r '
+        .spec.sizeMapping // {} |
+        if type == "object" and length > 0 then
+          to_entries[] |
+          . as $e |
+          (
+            ["  \u2022 " + $e.key + ":"],
+            (if $e.value.replicas != null then ["      replicas : " + ($e.value.replicas | tostring)] else [] end),
+            (if $e.value.resources.requests.cpu != null then ["      cpu.requests    : " + $e.value.resources.requests.cpu] else [] end),
+            (if $e.value.resources.limits.cpu != null then ["      cpu.limits      : " + $e.value.resources.limits.cpu] else [] end),
+            (if $e.value.resources.requests.memory != null then ["      memory.requests : " + $e.value.resources.requests.memory] else [] end),
+            (if $e.value.resources.limits.memory != null then ["      memory.limits   : " + $e.value.resources.limits.memory] else [] end)
+          ) | .[]
+        else empty end
+      ' > "$tmp_size_mapping" 2>/dev/null || :
+
+    $OC -n "$PROJECT_CPD_INST_OPERANDS" get wo "$wo_name" -o json 2>/dev/null | \
+      jq -r '
+        .spec.image.digestOverrides // {} |
+        if type == "object" and length > 0 then
+          to_entries[] |
+          . as $d |
+          ("  \u2022 " + $d.key + ":"), ("      " + ($d.value | tostring))
+        else empty end
+      ' > "$tmp_digest_overrides" 2>/dev/null || :
+  fi
+
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  print_box_line "             watsonx Orchestrate Additional Customizations"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+  print_box_blank
+  print_box_line "Hands-off resources (annotation wo.watsonx.ibm.com/hands-off: \"true\")"
+  if [ -s "$tmp_hands_off_all" ]; then
+    while IFS= read -r line; do print_box_line "$line"; done < "$tmp_hands_off_all"
+  else
+    print_box_line "  • None"
+  fi
+  print_box_blank
+  print_box_line "Size Mapping Overrides:"
+  if [ -s "$tmp_size_mapping" ]; then
+    while IFS= read -r line; do print_box_line "$line"; done < "$tmp_size_mapping"
+  else
+    print_box_line "  • None"
+  fi
+  print_box_blank
+  print_box_line "Image Digest Overrides:"
+  if [ -s "$tmp_digest_overrides" ]; then
+    while IFS= read -r line; do print_box_line "$line"; done < "$tmp_digest_overrides"
+  else
+    print_box_line "  • None"
+  fi
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+  echo ""
+
+  rm -f "$tmp_hands_off_crs" "$tmp_hands_off_pods" "$tmp_hands_off_deployments" "$tmp_hands_off_all" "$tmp_size_mapping" "$tmp_digest_overrides"
+}
+
+check_permission() {
+  verb="$1"
+  resource="$2"
+  namespace="$3"
+  label="$4"
+
+  if [ "$namespace" = "-" ]; then
+    if $OC auth can-i "$verb" "$resource" >/dev/null 2>&1; then
+      echo "  ✅ $label"
+      return 0
+    fi
+  else
+    if $OC auth can-i "$verb" "$resource" -n "$namespace" >/dev/null 2>&1; then
+      echo "  ✅ $label"
+      return 0
+    fi
+  fi
+
+  echo "  ❌ $label"
+  return 1
+}
+
+run_permissions_check() {
+  ns="$PROJECT_CPD_INST_OPERANDS"
+  bad=0
+
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                         Checking OpenShift Permissions                       ║"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+  echo ""
+
+  echo "Checking core read permissions..."
+  check_permission get namespaces - "get namespaces" || bad=1
+  check_permission list namespaces - "list namespaces" || bad=1
+  check_permission get pods "$ns" "get pods" || bad=1
+  check_permission list pods "$ns" "list pods" || bad=1
+  check_permission get pods/log "$ns" "get pods/log" || bad=1
+  check_permission get deployments "$ns" "get deployments" || bad=1
+  check_permission list deployments "$ns" "list deployments" || bad=1
+  check_permission get statefulsets "$ns" "get statefulsets" || bad=1
+  check_permission get jobs "$ns" "get jobs" || bad=1
+  check_permission list jobs "$ns" "list jobs" || bad=1
+  check_permission get secrets "$ns" "get secrets" || bad=1
+  check_permission get persistentvolumeclaims "$ns" "get persistentvolumeclaims" || bad=1
+  echo ""
+
+  echo "Checking write permissions (required for troubleshoot mode)..."
+  check_permission delete pods "$ns" "delete pods" || bad=1
+  check_permission create pods/exec "$ns" "create pods/exec" || bad=1
+  check_permission patch deployments "$ns" "patch deployments" || bad=1
+  check_permission update deployments/scale "$ns" "update deployments/scale" || bad=1
+  check_permission patch statefulsets "$ns" "patch statefulsets" || bad=1
+  check_permission update statefulsets/scale "$ns" "update statefulsets/scale" || bad=1
+  check_permission delete jobs "$ns" "delete jobs" || bad=1
+  check_permission create secrets "$ns" "create secrets" || bad=1
+  check_permission patch secrets "$ns" "patch secrets" || bad=1
+  check_permission delete persistentvolumeclaims "$ns" "delete persistentvolumeclaims" || bad=1
+  echo ""
+
+  echo "Checking custom resource permissions..."
+  for res in \
+    wo \
+    wocomponentservices.wo.watsonx.ibm.com \
+    wa \
+    watsonxaiifm \
+    documentprocessings.watsonx.ibm.com \
+    digitalemployees.wo.watsonx.ibm.com \
+    uabautomationdecisionservices.uab.ba.ibm.com \
+    clusters.postgresql.k8s.enterprisedb.io \
+    rediscps.redis.ibm.com \
+    kafka \
+    kafkas.ibmevents.ibm.com \
+    kafkausers.ibmevents.ibm.com \
+    knativeeventings.operator.knative.dev \
+    knativekafkas.operator.serverless.openshift.io \
+    brokers.eventing.knative.dev \
+    triggers.eventing.knative.dev \
+    wxdengines.watsonxdata.ibm.com \
+    obc \
+    noobaa \
+    backingstores
+  do
+    check_permission get "$res" "$ns" "get $res" || bad=1
+  done
+  echo ""
+
+  echo "Checking custom resource write permissions (troubleshoot mode)..."
+  check_permission delete brokers.eventing.knative.dev "$ns" "delete brokers.eventing.knative.dev" || bad=1
+  check_permission delete triggers.eventing.knative.dev "$ns" "delete triggers.eventing.knative.dev" || bad=1
+  echo ""
+
+  echo "Checking if current user appears to have cluster-admin access..."
+  if $OC auth can-i '*' '*' >/dev/null 2>&1; then
+    echo "  ✅ Current user appears to have cluster-admin access"
+  else
+    echo "  ⚠️  Current user does not appear to have cluster-admin access"
+    echo "     Some cpd-cli operations may require cluster-admin permissions"
+  fi
+  echo ""
+
+  if [ "$bad" -eq 0 ]; then
+    echo "✅ All required core permissions are available"
+    return 0
+  fi
+
+  echo "❌ One or more required permissions are missing"
+  return 1
+}
+
+
+# =====================================================================
+#  trace_run_id  –  interactive run_id tracer
+# =====================================================================
+#
+# Interactive flow:
+#   1. Prompts for time window (how far back to look)
+#   2. Prompts for how many recent run_ids to discover
+#   3. Discovers run_ids from the two source-of-truth pods:
+#        archer-server  (creates run_id on every agent invocation)
+#        agentic-task-manager  (executes the run)
+#   4. Lists them and asks which to trace (single, range, or all)
+#   5. Searches only the relevant pods in request-flow order:
+#        INGRESS      socket-handler, channel-integrations
+#        ORCHESTRATE  archer-server, agentic-task-manager
+#        AI/LLM       ai-gateway
+#        SKILL/TOOL   skill-server, tools-runtime-manager,
+#                     openapi-provider, multi-skill-orchestration
+#        SUPPORT      connection-manager, pgbouncer
+#   6. Prints ONLY pods that have hits, with log lines numbered
+# =====================================================================
+trace_run_id() {
+  # optional pre-supplied run_id (from -r flag); empty = interactive discovery
+  _supplied_run_id="${1:-}"
+  ns="${PROJECT_CPD_INST_OPERANDS}"
+  OCN="$OC -n $ns"
+
+  # Pod substrings in request-flow order (only these are searched)
+  _TRACE_PODS="socket-handler channel-integrations archer-server agentic-task-manager ai-gateway wo-skill-server tools-runtime-manager openapi-provider multi-skill-orchestration wo-connection-manager pgbouncer"
+
+  # Pods used as source-of-truth for run_id discovery
+  _DISCOVERY_PODS="archer-server agentic-task-manager"
+
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  print_box_center_line "run_id Trace Mode"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+  printf "║ Namespace : %-64s║\n" "$ns"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+  echo ""
+
+  # ------------------------------------------------------------------
+  # If a specific run_id was supplied via -r, skip discovery entirely
+  # ------------------------------------------------------------------
+  if [ -n "$_supplied_run_id" ]; then
+    case "$_supplied_run_id" in
+      [0-9a-fA-F]*-[0-9a-fA-F]*) : ;;
+      *) echo "❌  '$_supplied_run_id' does not look like a UUID." >&2; exit 2 ;;
+    esac
+
+    # Still ask for time window
+    echo "Step 1 of 2 — How far back should logs be searched?"
+    echo ""
+    echo "  1) Last 1 minute"
+    echo "  2) Last 5 minutes"
+    echo "  3) Last 10 minutes"
+    echo "  4) Last 30 minutes"
+    echo "  5) Last 1 hour"
+    echo "  6) Last 6 hours"
+    echo "  7) Last 24 hours"
+    echo "  8) Custom (enter minutes)"
+    echo ""
+    printf "Enter choice (1-8) [default: 30 minutes, auto in ${USER_INPUT_TIMEOUT}s]: "
+    if read -t "$USER_INPUT_TIMEOUT" _tc </dev/tty 2>/dev/null; then : ; else
+      _tc=""; echo; echo "  ⏱️  No input, using default 30 minutes."
+    fi
+    case "${_tc:-4}" in
+      1) _since="1m";   _tdesc="1 minute" ;;
+      2) _since="5m";   _tdesc="5 minutes" ;;
+      3) _since="10m";  _tdesc="10 minutes" ;;
+      4|"") _since="30m";  _tdesc="30 minutes" ;;
+      5) _since="1h";   _tdesc="1 hour" ;;
+      6) _since="6h";   _tdesc="6 hours" ;;
+      7) _since="24h";  _tdesc="24 hours" ;;
+      8)
+        printf "  Enter minutes: "; read -r _cm </dev/tty
+        if [ -n "$_cm" ] && [ "$_cm" -gt 0 ] 2>/dev/null; then
+          _since="${_cm}m"; _tdesc="$_cm minutes"
+        else
+          echo "  Invalid, using 30 minutes."; _since="30m"; _tdesc="30 minutes"
+        fi ;;
+      *) echo "  Invalid, using 30 minutes."; _since="30m"; _tdesc="30 minutes" ;;
+    esac
+
+    echo ""
+    echo "▶ Tracing run_id: $_supplied_run_id  (last $_tdesc)"
+    echo ""
+    _trace_single_run_id "$_supplied_run_id" "$_since" "$_tdesc"
+    return
+  fi
+
+  # ------------------------------------------------------------------
+  # Interactive discovery mode
+  # ------------------------------------------------------------------
+
+  # ---- Step 1: time window ----
+  echo "Step 1 of 2 — How far back should logs be searched for run_ids?"
+  echo ""
+  echo "  1) Last 1 minute"
+  echo "  2) Last 5 minutes"
+  echo "  3) Last 10 minutes"
+  echo "  4) Last 30 minutes"
+  echo "  5) Last 1 hour"
+  echo "  6) Last 6 hours"
+  echo "  7) Last 24 hours"
+  echo "  8) Custom (enter minutes)"
+  echo ""
+  printf "Enter choice (1-8) [default: 30 minutes, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _tc </dev/tty 2>/dev/null; then : ; else
+    _tc=""; echo; echo "  ⏱️  No input, using default 30 minutes."
+  fi
+  case "${_tc:-4}" in
+    1) _since="1m";   _tdesc="1 minute" ;;
+    2) _since="5m";   _tdesc="5 minutes" ;;
+    3) _since="10m";  _tdesc="10 minutes" ;;
+    4|"") _since="30m";  _tdesc="30 minutes" ;;
+    5) _since="1h";   _tdesc="1 hour" ;;
+    6) _since="6h";   _tdesc="6 hours" ;;
+    7) _since="24h";  _tdesc="24 hours" ;;
+    8)
+      printf "  Enter minutes: "; read -r _cm </dev/tty
+      if [ -n "$_cm" ] && [ "$_cm" -gt 0 ] 2>/dev/null; then
+        _since="${_cm}m"; _tdesc="$_cm minutes"
+      else
+        echo "  Invalid, using 30 minutes."; _since="30m"; _tdesc="30 minutes"
+      fi ;;
+    *) echo "  Invalid, using 30 minutes."; _since="30m"; _tdesc="30 minutes" ;;
+  esac
+
+  echo ""
+  echo "  Time window: last $_tdesc  (--since=$_since)"
+  echo ""
+
+  # ---- Step 2: how many run_ids to discover ----
+  echo "Step 2 of 2 — How many recent run_ids should be discovered?"
+  echo ""
+  echo "  1)  Last  5 run_ids"
+  echo "  2)  Last 10 run_ids  (default)"
+  echo "  3)  Last 20 run_ids"
+  echo "  4)  Last 50 run_ids"
+  echo "  5)  Custom number"
+  echo ""
+  printf "Enter choice (1-5) [default: 10, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _rc </dev/tty 2>/dev/null; then : ; else
+    _rc=""; echo; echo "  ⏱️  No input, using default 10."
+  fi
+  case "${_rc:-2}" in
+    1) _max_ids=5 ;;
+    2|"") _max_ids=10 ;;
+    3) _max_ids=20 ;;
+    4) _max_ids=50 ;;
+    5)
+      printf "  Enter number: "; read -r _cn </dev/tty
+      if [ -n "$_cn" ] && [ "$_cn" -gt 0 ] 2>/dev/null; then
+        _max_ids="$_cn"
+      else
+        echo "  Invalid, using 10."; _max_ids=10
+      fi ;;
+    *) echo "  Invalid, using 10."; _max_ids=10 ;;
+  esac
+
+  echo ""
+  echo "  Will discover up to $_max_ids run_id(s) from the last $_tdesc."
+  echo ""
+
+  # ---- Discover run_ids from source-of-truth pods ----
+  echo "▶ Discovering run_ids from archer-server and agentic-task-manager pods..."
+  echo ""
+
+  _tmp_ids=$(mktemp 2>/dev/null || echo "/tmp/wo_trace_ids.$$")
+  : > "$_tmp_ids"
+
+  all_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || all_pods=""
+
+  for _dkey in $_DISCOVERY_PODS; do
+    for _pod in $(echo "$all_pods" | grep "$_dkey" || true); do
+      _pod_status=$($OCN get pod "$_pod" --no-headers 2>/dev/null | awk '{print $3}')
+      case "$_pod_status" in Running|CrashLoopBackOff) : ;; *) continue ;; esac
+      printf "  Scanning %s ... " "$_pod"
+      $OCN logs "$_pod" --since="$_since" 2>/dev/null \
+        | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' \
+        | sort -u >> "$_tmp_ids" 2>/dev/null || true
+      echo "done"
+    done
+  done
+
+  # Deduplicate, newest-first: reverse so last-seen = most recent, then take top N
+  sort -u "$_tmp_ids" > "${_tmp_ids}.uniq"
+  # We can't do true timestamp ordering without parsing, so keep unique sorted list
+  # and take the last _max_ids (tail = lexicographically highest UUIDs ≈ most recent)
+  tail -"$_max_ids" "${_tmp_ids}.uniq" > "${_tmp_ids}.top"
+  rm -f "$_tmp_ids" "${_tmp_ids}.uniq"
+
+  if [ ! -s "${_tmp_ids}.top" ]; then
+    echo ""
+    echo "  ⚠️  No run_ids found in the last $_tdesc."
+    echo "     Try a longer time window or check that the pods are running."
+    rm -f "${_tmp_ids}.top"
+    return
+  fi
+
+  # ---- List discovered run_ids ----
+  echo ""
+  echo "─────────────────────────────────────────────────────────────────"
+  echo "  Discovered run_ids (last $_tdesc, up to $_max_ids):"
+  echo ""
+  _idx=0
+  while IFS= read -r _rid; do
+    [ -z "$_rid" ] && continue
+    _idx=$(( _idx + 1 ))
+    printf "  %3d)  %s\n" "$_idx" "$_rid"
+  done < "${_tmp_ids}.top"
+  echo ""
+  echo "─────────────────────────────────────────────────────────────────"
+  echo ""
+  _total_discovered=$_idx
+
+  # ---- Ask which to trace ----
+  echo "Which run_id(s) should be traced?"
+  echo "  • Enter a single number  (e.g. 3)"
+  echo "  • Enter a range          (e.g. 1-5)"
+  echo "  • Enter 'all'            to trace all $_total_discovered"
+  echo "  • Enter a UUID directly  to trace a specific run_id not listed"
+  echo ""
+  printf "Your choice [default: all, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _sel </dev/tty 2>/dev/null; then : ; else
+    _sel="all"; echo; echo "  ⏱️  No input, tracing all."
+  fi
+  _sel="${_sel:-all}"
+
+  # Build list of run_ids to trace into a temp file
+  _tmp_trace=$(mktemp 2>/dev/null || echo "/tmp/wo_trace_sel.$$")
+  : > "$_tmp_trace"
+
+  # Check UUID pattern first — before range/number matching — since UUIDs contain '-'
+  if echo "$_sel" | grep -qE '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
+    echo "$_sel" > "$_tmp_trace"
+  else
+    case "$_sel" in
+      all|"")
+        cp "${_tmp_ids}.top" "$_tmp_trace"
+        ;;
+      *-*)
+        # numeric range e.g. 2-5
+        _rstart=$(echo "$_sel" | cut -d- -f1)
+        _rend=$(echo "$_sel"   | cut -d- -f2)
+        if [ -n "$_rstart" ] && [ -n "$_rend" ] \
+            && [ "$_rstart" -ge 1 ] 2>/dev/null \
+            && [ "$_rend" -le "$_total_discovered" ] 2>/dev/null \
+            && [ "$_rstart" -le "$_rend" ] 2>/dev/null; then
+          awk "NR>=$_rstart && NR<=$_rend" "${_tmp_ids}.top" > "$_tmp_trace"
+        else
+          echo "  ❌ Invalid range. Tracing all."
+          cp "${_tmp_ids}.top" "$_tmp_trace"
+        fi
+        ;;
+      [0-9]*)
+        # numeric index
+        _chosen=$(awk "NR==$_sel" "${_tmp_ids}.top")
+        if [ -n "$_chosen" ]; then
+          echo "$_chosen" > "$_tmp_trace"
+        else
+          echo "  ❌ Invalid selection. Tracing all."
+          cp "${_tmp_ids}.top" "$_tmp_trace"
+        fi
+        ;;
+      *)
+        echo "  ❌ Invalid input. Tracing all."
+        cp "${_tmp_ids}.top" "$_tmp_trace"
+        ;;
+    esac
+  fi
+
+  rm -f "${_tmp_ids}.top"
+
+  _trace_count=$(wc -l < "$_tmp_trace" | tr -d ' ')
+  echo ""
+  echo "▶ Tracing $_trace_count run_id(s) across request-flow pods (last $_tdesc)..."
+  echo ""
+
+  _grand_total=0
+  _tmp_hitcount=$(mktemp 2>/dev/null || echo "/tmp/wo_trace_hits.$$")
+  while IFS= read -r _rid; do
+    [ -z "$_rid" ] && continue
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  run_id: $_rid"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    _trace_single_run_id "$_rid" "$_since" "$_tdesc" "$_tmp_hitcount"
+    _hits=$(cat "$_tmp_hitcount" 2>/dev/null || echo 0)
+    _grand_total=$(( _grand_total + _hits ))
+    echo ""
+  done < "$_tmp_trace"
+
+  rm -f "$_tmp_trace" "$_tmp_hitcount"
+
+  echo "═════════════════════════════════════════════════════════════════"
+  echo "  Grand total: $_grand_total log line(s) across all traced run_ids."
+  echo "═════════════════════════════════════════════════════════════════"
+  echo ""
+}
+
+# =====================================================================
+#  _trace_single_run_id  –  search only the relevant WO pods for one
+#  run_id, printing ONLY pods that have hits (with numbered log lines).
+#  $4 = path to a file where the integer hit count is written.
+# =====================================================================
+_trace_single_run_id() {
+  _tr_id="$1"
+  _tr_since="$2"
+  _tr_tdesc="$3"
+  _tr_hitfile="${4:-}"
+  ns="${PROJECT_CPD_INST_OPERANDS}"
+  OCN="$OC -n $ns"
+
+  # Request-flow order — only these pod name substrings are searched
+  _TRACE_PODS="socket-handler channel-integrations archer-server agentic-task-manager ai-gateway wo-skill-server tools-runtime-manager openapi-provider multi-skill-orchestration wo-connection-manager pgbouncer"
+
+  _tr_total=0
+  all_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || all_pods=""
+
+  for _key in $_TRACE_PODS; do
+    for _pod in $(echo "$all_pods" | grep "$_key" || true); do
+      _pod_status=$($OCN get pod "$_pod" --no-headers 2>/dev/null | awk '{print $3}')
+      case "$_pod_status" in
+        Running|Completed|CrashLoopBackOff|Error) : ;;
+        *) continue ;;
+      esac
+
+      # Fetch logs within time window, grep for the run_id, write to temp file
+      _tmp_podlog=$(mktemp 2>/dev/null || echo "/tmp/wo_trace_log.$$")
+      $OCN logs "$_pod" --since="$_tr_since" 2>/dev/null \
+        | grep -F "$_tr_id" | head -50 > "$_tmp_podlog" || true
+
+      if [ ! -s "$_tmp_podlog" ]; then
+        rm -f "$_tmp_podlog"
+        continue   # silent skip — not found in this pod
+      fi
+
+      _hit_count=$(wc -l < "$_tmp_podlog" | tr -d ' ')
+      _tr_total=$(( _tr_total + _hit_count ))
+
+      printf "  ✅  %s  (%s lines, last %s)\n" "$_pod" "$_hit_count" "$_tr_tdesc"
+      _lnum=0
+      while IFS= read -r _line; do
+        _lnum=$(( _lnum + 1 ))
+        printf "       %3d│ %s\n" "$_lnum" "$_line"
+      done < "$_tmp_podlog"
+      rm -f "$_tmp_podlog"
+      echo ""
+    done
+  done
+
+  if [ "$_tr_total" -eq 0 ]; then
+    echo "  ⚠️   Not found in any request-flow pod within last $_tr_tdesc."
+    echo "      The run may predate the window or its pods may have recycled."
+  else
+    echo "  ──  $_tr_total line(s) total for this run_id."
+  fi
+
+  # Write hit count to file so caller (not in subshell) can aggregate
+  [ -n "$_tr_hitfile" ] && echo "$_tr_total" > "$_tr_hitfile"
+}
+
+# =====================================================================
+#  grep_pods  –  search all running pods for an arbitrary text string
+# =====================================================================
+grep_pods() {
+  text="$1"
+  ns="${PROJECT_CPD_INST_OPERANDS}"
+  OCN="$OC -n $ns"
+
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+  echo "║                         Pod Log Grep Mode                                    ║"
+  echo "╠══════════════════════════════════════════════════════════════════════════════╣"
+  printf "║ Namespace : %-64s║\n" "$ns"
+  printf "║ Pattern   : %-64s║\n" "$text"
+  printf "║ Mode      : %-64s║\n" "extended regex (-E), e.g. error|warn  or  erro*"
+  echo "╚══════════════════════════════════════════════════════════════════════════════╝"
+  echo ""
+
+  # ---- Time window prompt ----
+  echo "How far back should logs be searched?"
+  echo ""
+  echo "  1) Last 1 minute"
+  echo "  2) Last 5 minutes"
+  echo "  3) Last 10 minutes"
+  echo "  4) Last 30 minutes"
+  echo "  5) Last 1 hour"
+  echo "  6) Last 6 hours"
+  echo "  7) Last 24 hours"
+  echo "  8) Custom (enter minutes)"
+  echo ""
+  printf "Enter choice (1-8) [default: 30 minutes, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _gtc </dev/tty 2>/dev/null; then : ; else
+    _gtc=""; echo; echo "  ⏱️  No input, using default 30 minutes."
+  fi
+  case "${_gtc:-4}" in
+    1) _gsince="1m";  _gtdesc="1 minute" ;;
+    2) _gsince="5m";  _gtdesc="5 minutes" ;;
+    3) _gsince="10m"; _gtdesc="10 minutes" ;;
+    4|"") _gsince="30m"; _gtdesc="30 minutes" ;;
+    5) _gsince="1h";  _gtdesc="1 hour" ;;
+    6) _gsince="6h";  _gtdesc="6 hours" ;;
+    7) _gsince="24h"; _gtdesc="24 hours" ;;
+    8)
+      printf "  Enter minutes: "; read -r _gcm </dev/tty
+      if [ -n "$_gcm" ] && [ "$_gcm" -gt 0 ] 2>/dev/null; then
+        _gsince="${_gcm}m"; _gtdesc="$_gcm minutes"
+      else
+        echo "  Invalid, using 30 minutes."; _gsince="30m"; _gtdesc="30 minutes"
+      fi ;;
+    *) echo "  Invalid, using 30 minutes."; _gsince="30m"; _gtdesc="30 minutes" ;;
+  esac
+
+  # ---- Scope prompt ----
+  echo "Which pods should be searched?"
+  echo ""
+  echo "  1) Orchestrate  (excluding Assistant Builder)  [default]"
+  echo "  2) Orchestrate + Assistant Builder"
+  echo "  3) Orchestrate + Assistant Builder + CPD"
+  echo ""
+  printf "Enter choice (1-3) [default: 1, auto in ${USER_INPUT_TIMEOUT}s]: "
+  if read -t "$USER_INPUT_TIMEOUT" _gscope </dev/tty 2>/dev/null; then : ; else
+    _gscope=""; echo; echo "  ⏱️  No input, using default: Orchestrate."
+  fi
+  case "${_gscope:-1}" in
+    2) _gscope_desc="Orchestrate + Assistant Builder" ;;
+    3) _gscope_desc="Orchestrate + Assistant Builder + CPD" ;;
+    *) _gscope_desc="Orchestrate (excl. Watson Assistant)" ;;
+  esac
+
+  echo ""
+  echo "▶ Searching $_gscope_desc for '$text' (last $_gtdesc)..."
+  echo ""
+
+  # Build ordered pod list: wo- (non-wo-wa-) first, wo-wa- second, CPD last
+  _all_ns_pods=$($OCN get pods --no-headers 2>/dev/null | awk '{print $1}') || _all_ns_pods=""
+  _wo_pods=$(echo "$_all_ns_pods"   | grep '^wo-' | grep -v '^wo-wa-' || true)
+  _wowa_pods=$(echo "$_all_ns_pods" | grep '^wo-wa-'                   || true)
+  _cpd_pods=$(echo "$_all_ns_pods"  | grep -E '^(zen-|ibm-nginx|platform-|usermgmt|common-)' || true)
+  case "${_gscope:-1}" in
+    3) all_pods=$(printf '%s\n%s\n%s' "$_wo_pods" "$_wowa_pods" "$_cpd_pods" | grep -v '^$' || true) ;;
+    2) all_pods=$(printf '%s\n%s'     "$_wo_pods" "$_wowa_pods"              | grep -v '^$' || true) ;;
+    *) all_pods=$(printf '%s'         "$_wo_pods"                            | grep -v '^$' || true) ;;
+  esac
+  total_hits=0
+
+  for pod in $all_pods; do
+    pod_status=$($OCN get pod "$pod" --no-headers 2>/dev/null | awk '{print $3}')
+    case "$pod_status" in
+      Running|Completed|CrashLoopBackOff|Error) : ;;
+      *) continue ;;
+    esac
+
+    _tmp_glog=$(mktemp 2>/dev/null || echo "/tmp/wo_grep_log.$$")
+    $OCN logs "$pod" --since="$_gsince" 2>/dev/null \
+      | grep -E "$text" | head -50 > "$_tmp_glog" || true
+
+    if [ ! -s "$_tmp_glog" ]; then
+      rm -f "$_tmp_glog"
+      continue   # silent skip — not found in this pod
+    fi
+
+    hit_count=$(wc -l < "$_tmp_glog" | tr -d ' ')
+    total_hits=$(( total_hits + hit_count ))
+    printf "  ✅  %s  (%s lines, last %s)\n" "$pod" "$hit_count" "$_gtdesc"
+    _lnum=0
+    while IFS= read -r _line; do
+      _lnum=$(( _lnum + 1 ))
+      printf "       %3d│ %s\n" "$_lnum" "$_line"
+    done < "$_tmp_glog"
+    rm -f "$_tmp_glog"
+    echo ""
+  done
+
+  echo "─────────────────────────────────────────────────────────────────"
+  if [ "$total_hits" -eq 0 ]; then
+    echo "  ⚠️   '$text' was not found in $_gscope_desc (last $_gtdesc)."
+  else
+    echo "  ✅  Found $total_hits log line(s) matching '$text' in $_gscope_desc (last $_gtdesc)."
+  fi
+  echo "─────────────────────────────────────────────────────────────────"
+  echo ""
 }
 
 # Build a combined regex from LOG_NOISE_PATTERNS for grep -vE filtering
@@ -304,12 +1185,15 @@ show_current_config() {
     $OC -n "$ns" get wo "$wo_name" -o json 2>/dev/null | \
       jq -r '
         .spec.sizeMapping // {} | to_entries[] |
-        "     - " + .key + ":" +
-        "\n       replicas    : " + (.value.replicas | if . then tostring else "not set" end) +
-        "\n       cpu request : " + (.value.resources.requests.cpu  // "not set") +
-        "\n       cpu limit   : " + (.value.resources.limits.cpu    // "not set") +
-        "\n       mem request : " + (.value.resources.requests.memory // "not set") +
-        "\n       mem limit   : " + (.value.resources.limits.memory   // "not set")
+        . as $e |
+        (
+          ["     - " + $e.key + ":"],
+          (if $e.value.replicas != null then ["       replicas        : " + ($e.value.replicas | tostring)] else [] end),
+          (if $e.value.resources.requests.cpu != null then ["       cpu.requests    : " + $e.value.resources.requests.cpu] else [] end),
+          (if $e.value.resources.limits.cpu != null then ["       cpu.limits      : " + $e.value.resources.limits.cpu] else [] end),
+          (if $e.value.resources.requests.memory != null then ["       memory.requests : " + $e.value.resources.requests.memory] else [] end),
+          (if $e.value.resources.limits.memory != null then ["       memory.limits   : " + $e.value.resources.limits.memory] else [] end)
+        ) | .[]
       ' 2>/dev/null || echo "     (Unable to parse)"
   fi
   
@@ -425,6 +1309,58 @@ modify_docproc() {
   echo "✓ DocProc updated successfully"
 }
 
+# Function to toggle DataGovernor (Metering)
+modify_datagovernor() {
+  local wo_name="$1"
+  local ns="$2"
+  
+  local current=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.dataGovernor.enabled}' 2>/dev/null || echo "not set")
+  
+  echo ""
+  echo "Current DataGovernor (Metering) enabled: $current"
+  echo "  1) Enable DataGovernor (Metering)"
+  echo "  2) Disable DataGovernor (Metering)"
+  printf "Select option (1-2) or 'cancel' to skip: "
+  read -r dg_choice
+  
+  case "$dg_choice" in
+    1) new_dg="true" ;;
+    2) new_dg="false" ;;
+    cancel|"") echo "Skipped."; return ;;
+    *) echo "❌ Invalid choice. Please enter 1 or 2."; return ;;
+  esac
+  
+  echo "Updating DataGovernor to: $new_dg"
+  $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"dataGovernor\":{\"enabled\":$new_dg}}}"
+  echo "✓ DataGovernor updated successfully"
+}
+
+# Function to toggle Observability
+modify_observability() {
+  local wo_name="$1"
+  local ns="$2"
+  
+  local current=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.observability.enabled}' 2>/dev/null || echo "not set")
+  
+  echo ""
+  echo "Current Observability enabled: $current"
+  echo "  1) Enable Observability"
+  echo "  2) Disable Observability"
+  printf "Select option (1-2) or 'cancel' to skip: "
+  read -r obs_choice
+  
+  case "$obs_choice" in
+    1) new_obs="true" ;;
+    2) new_obs="false" ;;
+    cancel|"") echo "Skipped."; return ;;
+    *) echo "❌ Invalid choice. Please enter 1 or 2."; return ;;
+  esac
+  
+  echo "Updating Observability to: $new_obs"
+  $OC -n "$ns" patch wo "$wo_name" --type=merge -p "{\"spec\":{\"observability\":{\"enabled\":$new_obs}}}"
+  echo "✓ Observability updated successfully"
+}
+
 # Function to add/modify image digest
 modify_image_digest() {
   local wo_name="$1"
@@ -436,26 +1372,18 @@ modify_image_digest() {
   echo "--------------------------------"
   echo "Current digest overrides:"
   local digests_json
-  digests_json=$($OC -n "$ns" get wo "$wo_name" \
-    -o jsonpath='{.spec.image.digestOverrides}' 2>/dev/null || echo "")
+  local tmp_digests
+  local tmp_wo_json
+  tmp_digests=$(mktemp 2>/dev/null || echo "/tmp/wo_digests.$$")
+  tmp_wo_json=$(mktemp 2>/dev/null || echo "/tmp/wo_json.$$")
+  $OC -n "$ns" get wo "$wo_name" -o json > "$tmp_wo_json" 2>/dev/null || :
+  digests_json=$(jq -c '.spec.image.digestOverrides // {}' "$tmp_wo_json" 2>/dev/null || echo "")
   if [ -z "$digests_json" ] || [ "$digests_json" = "{}" ] || [ "$digests_json" = "null" ] || [ -z "$digests_json" ]; then
     echo "  (none configured)"
   else
-    # Parse key:value pairs using awk - output idx|name|sha for later reuse
-    local tmp_digests
-    tmp_digests=$(mktemp 2>/dev/null || echo "/tmp/wo_digests.$$")
-    $OC -n "$ns" get wo "$wo_name" -o json 2>/dev/null | \
-      awk '
-        BEGIN { in_do=0; idx=0 }
-        /"digestOverrides"[[:space:]]*:/ { in_do=1; next }
-        in_do {
-          if ($0 ~ /^[[:space:]]*}/) { in_do=0; next }
-          if (match($0, /"([^"]+)"[[:space:]]*:[[:space:]]*"([^"]+)"/, arr)) {
-            idx++
-            print idx "|" arr[1] "|" arr[2]
-          }
-        }
-      ' > "$tmp_digests" 2>/dev/null
+    cat "$tmp_wo_json" | \
+      jq -r '.spec.image.digestOverrides // {} | to_entries[] | [.key, (.value | tostring)] | @tsv' 2>/dev/null | \
+      awk -F'\t' '{print NR "|" $1 "|" $2}' > "$tmp_digests" 2>/dev/null || :
     if [ -s "$tmp_digests" ]; then
       printf "  %-30s %s\n" "Image" "Current SHA"
       printf "  %-30s %s\n" "-----" "-----------"
@@ -477,43 +1405,99 @@ modify_image_digest() {
   case "$digest_option" in
     1)
       echo ""
-      printf "Enter image name (e.g., wo-ui): "
-      read -r image_name
+      echo "Select image name:"
+      local tmp_images tmp_running_digests
+      tmp_images=$(mktemp 2>/dev/null || echo "/tmp/wo_images.$$")
+      tmp_running_digests=$(mktemp 2>/dev/null || echo "/tmp/wo_running_digests.$$")
+      echo "$_DIGEST_OVERRIDE_IMAGE_MAP" | tr ' ' '\n' > "$tmp_images"
+      $OC -n "$ns" get pods -o json 2>/dev/null | \
+        jq -r '
+          [.items[]? | select(.metadata.name | test("^(wo-|tf-)|milvus")) |
+            (.spec.initContainers // []), (.spec.containers // []) | .[]? | .image] |
+          .[]? | select(test("@sha256:")) |
+          capture("(?<repo>[^/@:]+)@(?<sha>sha256:[A-Fa-f0-9]+)") |
+          [.repo, .sha] | @tsv
+        ' 2>/dev/null | sort -u > "$tmp_running_digests" || :
+      local img_idx=0
+      while IFS='|' read -r img_name repo_name; do
+        [ -z "$img_name" ] && continue
+        img_idx=$((img_idx + 1))
+        current_img_sha=$(jq -r --arg image "$img_name" '.spec.image.digestOverrides[$image] // ""' "$tmp_wo_json" 2>/dev/null || echo "")
+        running_img_sha=$(awk -F'\t' -v repo="$repo_name" '$1==repo {print $2; exit}' "$tmp_running_digests")
+        sha_display=""
+        [ -n "$running_img_sha" ] && sha_display="running: $running_img_sha"
+        [ -n "$current_img_sha" ] && sha_display="${sha_display:+$sha_display, }override: $current_img_sha"
+        [ -z "$sha_display" ] && sha_display="running: (not found)"
+        if [ -n "$current_img_sha" ]; then
+          printf "  %-3s %-35s -> %-38s %s\n" "$img_idx)" "$img_name" "$repo_name" "$sha_display"
+        else
+          printf "  %-3s %-35s -> %-38s %s\n" "$img_idx)" "$img_name" "$repo_name" "$sha_display"
+        fi
+      done < "$tmp_images"
+      echo "  manual) Enter image name manually"
+      echo ""
+      printf "Select image number, 'manual', or 'cancel': "
+      read -r image_choice
+      case "$image_choice" in
+        cancel|"") echo "Skipped."; rm -f "$tmp_digests" "$tmp_wo_json" "$tmp_images" "$tmp_running_digests"; return ;;
+        manual)
+          printf "Enter image name: "
+          read -r image_name
+          ;;
+        *)
+          image_name=$(awk -F'|' -v n="$image_choice" 'NR==n{print $1}' "$tmp_images")
+          ;;
+      esac
       if [ -z "$image_name" ]; then
         echo "❌ Image name cannot be empty"
-        rm -f "$tmp_digests"
+        rm -f "$tmp_digests" "$tmp_wo_json" "$tmp_images" "$tmp_running_digests"
         return
       fi
 
       # Show current SHA for this image if it exists
       local current_sha
-      current_sha=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.image.digestOverrides.$image_name}" 2>/dev/null || echo "")
-      if [ -n "$current_sha" ]; then
-        echo "  Current SHA: $current_sha"
+      repo_name=$(echo "$_DIGEST_OVERRIDE_IMAGE_MAP" | tr ' ' '\n' | awk -F'|' -v image="$image_name" '$1==image{print $2; exit}')
+      current_sha=$(jq -r --arg image "$repo_name" '.spec.image.digestOverrides[$image] // ""' "$tmp_wo_json" 2>/dev/null || echo "")
+      running_sha=""
+      [ -n "$repo_name" ] && running_sha=$(awk -F'\t' -v repo="$repo_name" '$1==repo {print $2; exit}' "$tmp_running_digests")
+      [ -n "$repo_name" ] && echo "  Image repository/name: $repo_name"
+      if [ -n "$running_sha" ]; then
+        echo "  Running pod SHA: $running_sha"
       else
-        echo "  Current SHA: (not set)"
+        echo "  Running pod SHA: (not found in Orchestrate pods)"
+      fi
+      if [ -n "$current_sha" ]; then
+        echo "  Current override SHA: $current_sha"
+      else
+        echo "  Current override SHA: (not set)"
       fi
 
       printf "Enter new digest (sha256:...): "
       read -r digest_value
       if [ -z "$digest_value" ]; then
         echo "❌ Digest cannot be empty"
-        rm -f "$tmp_digests"
+        rm -f "$tmp_digests" "$tmp_wo_json" "$tmp_images" "$tmp_running_digests"
         return
       fi
 
-      echo "Updating digest override for $image_name..."
+      # Add sha256: prefix if not present
+      if [[ ! "$digest_value" =~ ^sha256: ]]; then
+        digest_value="sha256:$digest_value"
+        echo "  (Added sha256: prefix)"
+      fi
+
+      echo "Updating digest override for $repo_name..."
       $OC -n "$ns" patch wo "$wo_name" --type=merge \
-        -p "{\"spec\":{\"image\":{\"digestOverrides\":{\"$image_name\":\"$digest_value\"}}}}"
+        -p "{\"spec\":{\"image\":{\"digestOverrides\":{\"$repo_name\":\"$digest_value\"}}}}"
       echo "✓ Digest override updated successfully"
+      rm -f "$tmp_images" "$tmp_running_digests"
       ;;
     2)
       echo ""
       # Build remove menu from existing overrides
       if [ ! -s "$tmp_digests" ]; then
         echo "ℹ️  No digest overrides are currently configured."
-        rm -f "$tmp_digests"
+        rm -f "$tmp_digests" "$tmp_wo_json"
         return
       fi
       echo "Select image to remove:"
@@ -523,12 +1507,12 @@ modify_image_digest() {
       echo ""
       printf "Enter number (or 'cancel'): "
       read -r remove_choice
-      [ "$remove_choice" = "cancel" ] || [ -z "$remove_choice" ] && { echo "Skipped."; rm -f "$tmp_digests"; return; }
+      [ "$remove_choice" = "cancel" ] || [ -z "$remove_choice" ] && { echo "Skipped."; rm -f "$tmp_digests" "$tmp_wo_json"; return; }
       local remove_name
       remove_name=$(awk -F'|' -v n="$remove_choice" '$1==n{print $2}' "$tmp_digests")
       if [ -z "$remove_name" ]; then
         echo "❌ Invalid selection."
-        rm -f "$tmp_digests"
+        rm -f "$tmp_digests" "$tmp_wo_json"
         return
       fi
       echo "Removing digest override for $remove_name..."
@@ -540,38 +1524,103 @@ modify_image_digest() {
       echo "Cancelled."
       ;;
   esac
-  rm -f "$tmp_digests"
+  rm -f "$tmp_digests" "$tmp_wo_json"
 }
 
 # Function to modify component replicas and resources
-# Helper: build list of wo-* deployments and statefulsets with current replicas
-# Only includes components that are valid sizeMapping keys (wo- prefix stripped must match a known scalable component)
-_SCALABLE_COMPONENTS="agentic-task-manager agent-gateway ai-gateway ai-cognitive-mapper archer-server builder-ui connection-manager connector-service landing-page multi-skill-orchestration-ai new-teams-server openapi-provider platform-ui skill-catalog-ui skill-sequencing skill-server studio teams-server teams-ui tenant-controller tenant-registry tools-runtime-manager uiproxy wxo-connections wxo-connections-ui appconnect-skill-provider automation-discovery channel-integrations discover-skills discover-zos-adapter wxo-docker-proxy kafka kafka-zookeeper opensearch postgres rabbitmq jaeger-collector jaeger-query archer_de_client_mapper conversation_controller_mapper de-client de-server de-seeder socket_handler voice-controller wxo_chat_client"
-_list_wo_components() {
-  local ns="$1"
-  # Collect deployments
-  $OC -n "$ns" get deployments --no-headers 2>/dev/null | awk '$1 ~ /^wo-/ {print $1" "$2}' | \
-    while read cname ready; do
-      sm_key="${cname#wo-}"
-      echo "$_SCALABLE_COMPONENTS" | tr ' ' '\n' | grep -qx "$sm_key" || continue
-      current=$(echo "$ready" | awk -F/ '{print $2}')
-      echo "deploy|$cname|${current:-?}"
-    done
-  # Collect statefulsets
-  $OC -n "$ns" get statefulsets --no-headers 2>/dev/null | awk '$1 ~ /^wo-/ {print $1" "$2}' | \
-    while read cname ready; do
-      sm_key="${cname#wo-}"
-      echo "$_SCALABLE_COMPONENTS" | tr ' ' '\n' | grep -qx "$sm_key" || continue
-      current=$(echo "$ready" | awk -F/ '{print $2}')
-      echo "sts|$cname|${current:-?}"
-    done
+# Helper: build list from deployed workloads plus active sizeMapping overrides.
+_SCALABLE_COMPONENTS="agentic-task-manager agent-gateway ai-gateway ai-cognitive-mapper appconnect-skill-provider archer-server archer_de_client_mapper audit_logging automation-discovery builder-ui ccaas-chat-connector channel-integrations connection-manager connector-service conversation_controller_mapper data_exhaust_producer_mapper de-client de-seeder de-server discover-skills discover-zos-adapter ibm_connectivity_pack jaeger-collector jaeger-query kafka kafka-operator kafka-zookeeper landing-page mcp-context-forge multi-skill-orchestration-ai openapi-provider opensearch pgbouncer platform-ui postgres rabbitmq rabbitmq-init-container skill-catalog-ui skill-sequencing skill-server sip-connector socket_handler studio teams-server teams-ui tenant-controller tenant-registry tools-runtime tools-runtime-manager tools-runtime-scheduler uiproxy voice-controller wxdengine_etcd wxo-connections wxo-connections-ui wxo-docker-proxy wxo_chat_client wxo_knowledge wxo_tds"
+_DIGEST_OVERRIDE_IMAGES="ai-cognitive-mapper multi-skill-orchestration-ai platform-ui skill-sequencing tenant-registry automation-discovery tenant-controller connection-manager skill-catalog-ui landing-page appconnect-skill-provider teams-ui teams-server new-teams-server connector-service archer-server conversation_controller_mapper data_exhaust_producer_mapper wxo_chat_client socket_handler uiproxy discover-zos-adapter discover-skills openapi-provider wo-ootb-unpack bootstrap-catalog-api onprem-utils de-seeder de-server de-webclient studio skill-server archer_de_client_mapper postgres-edb pgbouncer ibm_connectivity_pack_action wxo-connections tools-runtime-manager tools-runtime-scheduler tools-runtime builder-ui wxo-connections-ui agentic-task-manager agent-gateway ai-gateway voice_controller channel_integrations ccaas-chat-connector wxo-docker-proxy mcp-context-forge agentops wxo_knowledge"
+_DIGEST_OVERRIDE_IMAGE_MAP="agent-gateway|wxo-agent-gateway agentic-task-manager|wxo-flow-runtime agentops|agent-analytics ai-cognitive-mapper|ai-cognitive-mapper ai-gateway|ai-gateway appconnect-skill-provider|appconnect-skill-provider archer-server|wxo-server-server archer_de_client_mapper|archer-de-webclient automation-discovery|discover-m-service bootstrap-catalog-api|wo-skill-bootstrap-job builder-ui|wxo-builder ccaas-chat-connector|wxo-ccaas-chat-connector channel_integrations|channel-integrations connection-manager|connection-manager connector-service|connector-service-ui conversation_controller_mapper|wxo-server-conversation_controller data_exhaust_producer_mapper|data-exhaust-producer de-seeder|de-seeder de-server|de-server de-webclient|de-webclient discover-skills|discover-skills discover-zos-adapter|discover-zos-adapter ibm_connectivity_pack_action|action-connectors landing-page|landing-login mcp-context-forge|mcp-contest-forge multi-skill-orchestration-ai|multi-skill-orchestration-ai new-teams-server|teamsserver onprem-utils|ibm-watsonx-orchestrate-onprem-utils openapi-provider|openapi-provider pgbouncer|pgbouncer platform-ui|platformui postgres-edb|postgresql skill-catalog-ui|wo-skill-catalog-ui skill-sequencing|skillsequencingservice skill-server|skill-server socket_handler|socket-handler studio|ba-saas-skill-studio teams-server|teams-backend teams-ui|teams-ui tenant-controller|tenantctrl tenant-registry|tenantregistry tools-runtime|tools-runtime tools-runtime-manager|tools-runtime-manager tools-runtime-scheduler|tools-runtime-scheduler uiproxy|platformuiproxy voice_controller|wxo-server-voice wo-ootb-unpack|wo-ootb-primitive-skills wxo-connections|wxo-connections wxo-connections-ui|wxo-connections-ui wxo-docker-proxy|wxo-docker-proxy wxo_chat_client|wxo-chat wxo_knowledge|wxo-knowledge-mcp-server"
+
+_size_mapping_key_from_workload() {
+  name="$1"
+  sm_key="${name#wo-}"
+  case "$sm_key" in
+    archer-de-client) sm_key="archer_de_client_mapper" ;;
+    archer-de-client-mapper) sm_key="archer_de_client_mapper" ;;
+    conversation-controller) sm_key="conversation_controller_mapper" ;;
+    conversation-controller-mapper) sm_key="conversation_controller_mapper" ;;
+    ibm-connectivity-pack) sm_key="ibm_connectivity_pack" ;;
+    metering-sidecar) sm_key="data_exhaust_producer_mapper" ;;
+    socket-handler) sm_key="socket_handler" ;;
+    wxo-chat-client) sm_key="wxo_chat_client" ;;
+    wxo-knowledge) sm_key="wxo_knowledge" ;;
+    tenant-data-service) sm_key="wxo_tds" ;;
+  esac
+  echo "$sm_key"
 }
 
-# Helper: get current resource values for a component (deployment or sts)
-_get_component_resources() {
+_is_scalable_component() {
+  key="$1"
+  echo "$_SCALABLE_COMPONENTS" | tr ' ' '\n' | grep -qx "$key"
+}
+
+_list_size_mapping_components() {
+  local ns="$1"
+  local wo_name="$2"
+  tmp_components=`mktemp 2>/dev/null || echo "/tmp/wo_size_components.$$"`
+  tmp_seen=`mktemp 2>/dev/null || echo "/tmp/wo_size_seen.$$"`
+  tmp_active=`mktemp 2>/dev/null || echo "/tmp/wo_size_active.$$"`
+  : > "$tmp_components"
+  : > "$tmp_seen"
+  : > "$tmp_active"
+
+  if [ -n "$wo_name" ]; then
+    $OC -n "$ns" get wo "$wo_name" -o json 2>/dev/null | \
+      jq -r '.spec.sizeMapping // {} | keys[]' 2>/dev/null > "$tmp_active" || :
+  fi
+
+  $OC -n "$ns" get deployments --no-headers 2>/dev/null | awk '$1 ~ /^wo-/ {print "deploy|"$1"|"$2}' | \
+    while IFS='|' read -r kind cname ready; do
+      sm_key=$(_size_mapping_key_from_workload "$cname")
+      if ! _is_scalable_component "$sm_key" && ! grep -qx "$sm_key" "$tmp_active" 2>/dev/null; then
+        continue
+      fi
+      current=$(echo "$ready" | awk -F/ '{print $2}')
+      echo "$kind|$cname|$sm_key|${current:-?}"
+    done >> "$tmp_components" || :
+
+  $OC -n "$ns" get statefulsets --no-headers 2>/dev/null | awk '$1 ~ /^wo-/ {print "sts|"$1"|"$2}' | \
+    while IFS='|' read -r kind cname ready; do
+      sm_key=$(_size_mapping_key_from_workload "$cname")
+      if ! _is_scalable_component "$sm_key" && ! grep -qx "$sm_key" "$tmp_active" 2>/dev/null; then
+        continue
+      fi
+      current=$(echo "$ready" | awk -F/ '{print $2}')
+      echo "$kind|$cname|$sm_key|${current:-?}"
+    done >> "$tmp_components" || :
+
+  while IFS= read -r sm_key; do
+    [ -z "$sm_key" ] && continue
+    if ! awk -F'|' -v key="$sm_key" '$3==key {found=1} END {exit found?0:1}' "$tmp_components"; then
+      echo "override|-|$sm_key|N/A" >> "$tmp_components"
+    fi
+  done < "$tmp_active"
+
+  while IFS='|' read -r kind cname sm_key replicas; do
+    [ -z "$sm_key" ] && continue
+    if grep -qx "$sm_key" "$tmp_seen" 2>/dev/null; then
+      continue
+    fi
+    echo "$sm_key" >> "$tmp_seen"
+    echo "$kind|$cname|$sm_key|$replicas"
+  done < "$tmp_components"
+
+  rm -f "$tmp_components" "$tmp_seen" "$tmp_active"
+}
+
+# Helper: get current resource values for a selected container in a deployment or sts
+_get_component_container_resources() {
   local ns="$1"
   local cname="$2"
+  local container_type="${3:-container}"
+  local container_index="${4:-0}"
   local kind
+  [ -z "$cname" ] || [ "$cname" = "-" ] && { echo "not found|not found|not found|not found"; return; }
+  [ -z "$container_index" ] && container_index=0
+  local container_path="containers"
+  [ "$container_type" = "init" ] && container_path="initContainers"
   # Detect kind
   if $OC -n "$ns" get deployment "$cname" >/dev/null 2>&1; then
     kind="deployment"
@@ -580,14 +1629,49 @@ _get_component_resources() {
   fi
   local cpu_req mem_req cpu_lim mem_lim
   cpu_req=$($OC -n "$ns" get "$kind" "$cname" \
-    -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null || echo "")
+    -o jsonpath="{.spec.template.spec.$container_path[$container_index].resources.requests.cpu}" 2>/dev/null || echo "")
   mem_req=$($OC -n "$ns" get "$kind" "$cname" \
-    -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>/dev/null || echo "")
+    -o jsonpath="{.spec.template.spec.$container_path[$container_index].resources.requests.memory}" 2>/dev/null || echo "")
   cpu_lim=$($OC -n "$ns" get "$kind" "$cname" \
-    -o jsonpath='{.spec.template.spec.containers[0].resources.limits.cpu}' 2>/dev/null || echo "")
+    -o jsonpath="{.spec.template.spec.$container_path[$container_index].resources.limits.cpu}" 2>/dev/null || echo "")
   mem_lim=$($OC -n "$ns" get "$kind" "$cname" \
-    -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}' 2>/dev/null || echo "")
+    -o jsonpath="{.spec.template.spec.$container_path[$container_index].resources.limits.memory}" 2>/dev/null || echo "")
   echo "${cpu_req:-not set}|${mem_req:-not set}|${cpu_lim:-not set}|${mem_lim:-not set}"
+}
+
+_write_component_containers() {
+  local ns="$1"
+  local cname="$2"
+  local out_file="$3"
+  local kind
+  : > "$out_file"
+  [ -z "$cname" ] || [ "$cname" = "-" ] && return 1
+  if $OC -n "$ns" get deployment "$cname" >/dev/null 2>&1; then
+    kind="deployment"
+  elif $OC -n "$ns" get statefulset "$cname" >/dev/null 2>&1; then
+    kind="statefulset"
+  else
+    return 1
+  fi
+  $OC -n "$ns" get "$kind" "$cname" -o json 2>/dev/null | \
+    jq -r '
+      [
+        (.spec.template.spec.initContainers // [] | to_entries[] | {type:"init", idx:.key, item:.value}),
+        (.spec.template.spec.containers // [] | to_entries[] | {type:"container", idx:.key, item:.value})
+      ] |
+      to_entries[] |
+      [
+        ((.key + 1) | tostring),
+        .value.type,
+        (.value.idx | tostring),
+        .value.item.name,
+        (.value.item.image // ""),
+        (.value.item.resources.requests.cpu // "not set"),
+        (.value.item.resources.requests.memory // "not set"),
+        (.value.item.resources.limits.cpu // "not set"),
+        (.value.item.resources.limits.memory // "not set")
+      ] | @tsv
+    ' > "$out_file" 2>/dev/null || :
 }
 
 modify_component_sizing() {
@@ -612,32 +1696,30 @@ modify_component_sizing() {
     1)
       # ---- REPLICAS MENU ----
       echo ""
-      echo "Fetching wo-* components..."
+      echo "Fetching supported sizeMapping components..."
       local tmp_comps
       tmp_comps=$(mktemp 2>/dev/null || echo "/tmp/wo_comps.$$")
-      _list_wo_components "$ns" > "$tmp_comps"
+      _list_size_mapping_components "$ns" "$wo_name" > "$tmp_comps"
 
       if [ ! -s "$tmp_comps" ]; then
-        echo "❌ No wo-* components found in namespace $ns"
+        echo "❌ No supported sizeMapping components found"
         rm -f "$tmp_comps"
         return
       fi
 
       echo ""
-      echo "#   Component                                    Current Replicas"
-      echo "--- ------------------------------------------------ ----------------"
+      echo "#   SizeMapping Key                         Workload                                      Current Replicas"
+      echo "--- --------------------------------------- --------------------------------------------- ----------------"
       local idx=0
-      while IFS='|' read -r ckind cname creplicas; do
+      while IFS='|' read -r ckind cname sm_key creplicas; do
         idx=$((idx + 1))
-        # Get sizeMapping override if any (key is component name without wo- prefix)
-        local sm_key sm_replicas
-        sm_key="${cname#wo-}"
+        local sm_replicas
         sm_replicas=$($OC -n "$ns" get wo "$wo_name" \
           -o jsonpath="{.spec.sizeMapping.$sm_key.replicas}" 2>/dev/null || echo "")
         if [ -n "$sm_replicas" ]; then
-          printf "%-3s %-48s %s (override: %s)\n" "$idx)" "$cname" "$creplicas" "$sm_replicas"
+          printf "%-3s %-39s %-45s %s (override: %s)\n" "$idx)" "$sm_key" "$cname" "$creplicas" "$sm_replicas"
         else
-          printf "%-3s %-48s %s\n" "$idx)" "$cname" "$creplicas"
+          printf "%-3s %-39s %-45s %s\n" "$idx)" "$sm_key" "$cname" "$creplicas"
         fi
       done < "$tmp_comps"
 
@@ -647,21 +1729,21 @@ modify_component_sizing() {
 
       [ "$comp_choice" = "cancel" ] || [ -z "$comp_choice" ] && { echo "Skipped."; rm -f "$tmp_comps"; return; }
 
-      local selected_name
+      local selected_name sm_key_1
       selected_name=$(awk -F'|' -v n="$comp_choice" 'NR==n{print $2}' "$tmp_comps")
+      sm_key_1=$(awk -F'|' -v n="$comp_choice" 'NR==n{print $3}' "$tmp_comps")
       rm -f "$tmp_comps"
 
-      if [ -z "$selected_name" ]; then
+      if [ -z "$sm_key_1" ]; then
         echo "❌ Invalid selection."
         return
       fi
 
-      local sm_key_1="${selected_name#wo-}"
       local cur_replicas
       cur_replicas=$($OC -n "$ns" get wo "$wo_name" \
         -o jsonpath="{.spec.sizeMapping.$sm_key_1.replicas}" 2>/dev/null || echo "")
       echo ""
-      echo "Component: $selected_name (sizeMapping key: $sm_key_1)"
+      echo "Component: $sm_key_1 (workload: $selected_name)"
       echo "Current sizeMapping replicas: ${cur_replicas:-not overridden}"
       printf "Enter new replica count (or 'cancel'): "
       read -r new_replicas
@@ -682,24 +1764,24 @@ modify_component_sizing() {
     2)
       # ---- RESOURCES MENU ----
       echo ""
-      echo "Fetching wo-* components..."
+      echo "Fetching supported sizeMapping components..."
       local tmp_comps2
       tmp_comps2=$(mktemp 2>/dev/null || echo "/tmp/wo_comps2.$$")
-      _list_wo_components "$ns" > "$tmp_comps2"
+      _list_size_mapping_components "$ns" "$wo_name" > "$tmp_comps2"
 
       if [ ! -s "$tmp_comps2" ]; then
-        echo "❌ No wo-* components found in namespace $ns"
+        echo "❌ No supported sizeMapping components found"
         rm -f "$tmp_comps2"
         return
       fi
 
       echo ""
-      echo "#   Component"
-      echo "--- ------------------------------------------------"
+      echo "#   SizeMapping Key                         Workload"
+      echo "--- --------------------------------------- ---------------------------------------------"
       local idx2=0
-      while IFS='|' read -r ckind cname creplicas; do
+      while IFS='|' read -r ckind cname sm_key creplicas; do
         idx2=$((idx2 + 1))
-        printf "%-3s %s\n" "$idx2)" "$cname"
+        printf "%-3s %-39s %s\n" "$idx2)" "$sm_key" "$cname"
       done < "$tmp_comps2"
 
       echo ""
@@ -708,50 +1790,99 @@ modify_component_sizing() {
 
       [ "$comp_choice2" = "cancel" ] || [ -z "$comp_choice2" ] && { echo "Skipped."; rm -f "$tmp_comps2"; return; }
 
-      local selected_name2
+      local selected_name2 sm_key_2
       selected_name2=$(awk -F'|' -v n="$comp_choice2" 'NR==n{print $2}' "$tmp_comps2")
+      sm_key_2=$(awk -F'|' -v n="$comp_choice2" 'NR==n{print $3}' "$tmp_comps2")
       rm -f "$tmp_comps2"
 
-      if [ -z "$selected_name2" ]; then
+      if [ -z "$sm_key_2" ]; then
         echo "❌ Invalid selection."
         return
       fi
 
-      # Show live deployment values AND sizeMapping overrides side by side
-      local sm_key_2="${selected_name2#wo-}"
+      # Show all init containers and app containers, then let the user pick
+      # which current resource values should be used as the prompt baseline.
       echo ""
-      echo "Fetching current resource values for $selected_name2..."
-      local res_info
-      res_info=$(_get_component_resources "$ns" "$selected_name2")
-      local cur_cpu_req cur_mem_req cur_cpu_lim cur_mem_lim
-      cur_cpu_req=$(echo "$res_info" | awk -F'|' '{print $1}')
-      cur_mem_req=$(echo "$res_info" | awk -F'|' '{print $2}')
-      cur_cpu_lim=$(echo "$res_info" | awk -F'|' '{print $3}')
-      cur_mem_lim=$(echo "$res_info" | awk -F'|' '{print $4}')
+      echo "Fetching containers for $sm_key_2..."
+      local tmp_containers selected_container_index selected_container_type selected_container_name
+      tmp_containers=$(mktemp 2>/dev/null || echo "/tmp/wo_containers.$")
+      _write_component_containers "$ns" "$selected_name2" "$tmp_containers"
 
-      # Fetch sizeMapping overrides from WO CR (key is component name without wo- prefix)
-      local sm_cpu_req sm_mem_req sm_cpu_lim sm_mem_lim
-      sm_cpu_req=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.requests.cpu}" 2>/dev/null || echo "")
-      sm_mem_req=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.requests.memory}" 2>/dev/null || echo "")
-      sm_cpu_lim=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.limits.cpu}" 2>/dev/null || echo "")
-      sm_mem_lim=$($OC -n "$ns" get wo "$wo_name" \
-        -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.limits.memory}" 2>/dev/null || echo "")
+      if [ ! -s "$tmp_containers" ]; then
+        echo "ERROR: No containers found for $selected_name2"
+        rm -f "$tmp_containers"
+        return
+      fi
 
-      # Helper to format a field: show override and live, or just live
-      _fmt_field() {
-        local live="$1" override="$2"
-        if [ -n "$override" ] && [ "$override" != "$live" ]; then
-          echo "$live  (override: $override)"
-        else
-          echo "$live"
+      local container_count
+      container_count=$(wc -l < "$tmp_containers" | tr -d ' ')
+
+      echo ""
+      echo "Component: $sm_key_2 (workload: $selected_name2)"
+      echo ""
+      while IFS='	' read -r num ctype cidx cname image cpu_req_live mem_req_live cpu_lim_live mem_lim_live; do
+        printf "%s) %s %s\n" "$num" "$ctype" "$cname"
+        printf "    image: %s\n" "${image:-not set}"
+        printf "    requests: cpu=%s, memory=%s\n" "$cpu_req_live" "$mem_req_live"
+        printf "    limits:   cpu=%s, memory=%s\n" "$cpu_lim_live" "$mem_lim_live"
+      done < "$tmp_containers"
+
+      echo ""
+      if [ "$container_count" -eq 1 ]; then
+        selected_row=$(awk -F'\t' 'NR==1{print}' "$tmp_containers")
+        selected_container_type=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $2}')
+        selected_container_index=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $3}')
+        selected_container_name=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $4}')
+        echo "Only one container found: $selected_container_type $selected_container_name"
+      else
+        printf "Select container number (or 'cancel'): "
+        read -r cont_choice
+        if [ "$cont_choice" = "cancel" ] || [ -z "$cont_choice" ]; then
+          echo "Skipped."
+          rm -f "$tmp_containers"
+          return
         fi
-      }
+        selected_row=$(awk -F'\t' -v n="$cont_choice" '$1==n{print}' "$tmp_containers")
+        selected_container_type=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $2}')
+        selected_container_index=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $3}')
+        selected_container_name=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $4}')
+        if [ -z "$selected_container_name" ]; then
+          echo "❌ Invalid selection."
+          rm -f "$tmp_containers"
+          return
+        fi
+      fi
+
+      # Get current resource values for selected row. sizeMapping is applied to
+      # the component key; this selection is for showing the right live baseline.
+      local cur_cpu_req cur_mem_req cur_cpu_lim cur_mem_lim
+      cur_cpu_req=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $6}')
+      cur_mem_req=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $7}')
+      cur_cpu_lim=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $8}')
+      cur_mem_lim=$(printf '%s\n' "$selected_row" | awk -F'\t' '{print $9}')
+      rm -f "$tmp_containers"
+
+      if [ -z "$cur_cpu_req" ]; then
+        local res_info
+        res_info=$(_get_component_container_resources "$ns" "$selected_name2" "$selected_container_type" "$selected_container_index")
+        cur_cpu_req=$(echo "$res_info" | awk -F'|' '{print $1}')
+        cur_mem_req=$(echo "$res_info" | awk -F'|' '{print $2}')
+        cur_cpu_lim=$(echo "$res_info" | awk -F'|' '{print $3}')
+        cur_mem_lim=$(echo "$res_info" | awk -F'|' '{print $4}')
+      fi
+
+      # Fetch sizeMapping overrides from WO CR
+      local sm_cpu_req sm_mem_req sm_cpu_lim sm_mem_lim
+      sm_cpu_req=$($OC -n "$ns" get wo "$wo_name" -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.requests.cpu}" 2>/dev/null || echo "")
+      sm_mem_req=$($OC -n "$ns" get wo "$wo_name" -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.requests.memory}" 2>/dev/null || echo "")
+      sm_cpu_lim=$($OC -n "$ns" get wo "$wo_name" -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.limits.cpu}" 2>/dev/null || echo "")
+      sm_mem_lim=$($OC -n "$ns" get wo "$wo_name" -o jsonpath="{.spec.sizeMapping.$sm_key_2.resources.limits.memory}" 2>/dev/null || echo "")
+
+      _fmt_field() { local live="$1" override="$2"; if [ -n "$override" ] && [ "$override" != "$live" ]; then echo "$live  (override: $override)"; else echo "$live"; fi; }
 
       echo ""
-      echo "Component: $selected_name2 (sizeMapping key: $sm_key_2)"
+      echo "Selected: $selected_container_type $selected_container_name"
+      echo "Note: this updates spec.sizeMapping.$sm_key_2.resources, using the selected container only as the live baseline."
       printf "  CPU request : %s\n" "$(_fmt_field "$cur_cpu_req" "$sm_cpu_req")"
       printf "  CPU limit   : %s\n" "$(_fmt_field "$cur_cpu_lim" "$sm_cpu_lim")"
       printf "  Mem request : %s\n" "$(_fmt_field "$cur_mem_req" "$sm_mem_req")"
@@ -802,7 +1933,7 @@ modify_component_sizing() {
         return
       fi
 
-      echo "Updating resources for $sm_key_2..."
+      echo "Updating resources for $sm_key_2 (baseline: $selected_container_type $selected_container_name)..."
       $OC -n "$ns" patch wo "$wo_name" --type=merge \
         -p "{\"spec\":{\"sizeMapping\":{\"$sm_key_2\":{\"resources\":$resources_json}}}}"
       echo "✓ Resources updated successfully"
@@ -811,24 +1942,23 @@ modify_component_sizing() {
     3)
       # ---- REMOVE OVERRIDE ----
       echo ""
-      echo "Fetching wo-* components with active sizeMapping overrides..."
+      echo "Fetching supported sizeMapping components with active overrides..."
       local tmp_comps3
       tmp_comps3=$(mktemp 2>/dev/null || echo "/tmp/wo_comps3.$$")
-      _list_wo_components "$ns" > "$tmp_comps3"
+      _list_size_mapping_components "$ns" "$wo_name" > "$tmp_comps3"
 
       echo ""
-      echo "#   Component                                    Override"
-      echo "--- ------------------------------------------------ --------"
+      echo "#   SizeMapping Key                         Workload                                      Override"
+      echo "--- --------------------------------------- --------------------------------------------- --------"
       local idx3=0
-      while IFS='|' read -r ckind cname creplicas; do
+      while IFS='|' read -r ckind cname sm_key3 creplicas; do
         idx3=$((idx3 + 1))
-        local sm_val sm_key3
-        sm_key3="${cname#wo-}"
+        local sm_val
         sm_val=$($OC -n "$ns" get wo "$wo_name" \
           -o jsonpath="{.spec.sizeMapping.$sm_key3}" 2>/dev/null || echo "")
         local override_label
         [ -n "$sm_val" ] && override_label="yes" || override_label="none"
-        printf "%-3s %-48s %s\n" "$idx3)" "$cname" "$override_label"
+        printf "%-3s %-39s %-45s %s\n" "$idx3)" "$sm_key3" "$cname" "$override_label"
       done < "$tmp_comps3"
 
       echo ""
@@ -837,16 +1967,16 @@ modify_component_sizing() {
 
       [ "$comp_choice3" = "cancel" ] || [ -z "$comp_choice3" ] && { echo "Skipped."; rm -f "$tmp_comps3"; return; }
 
-      local selected_name3
+      local selected_name3 sm_key_3
       selected_name3=$(awk -F'|' -v n="$comp_choice3" 'NR==n{print $2}' "$tmp_comps3")
+      sm_key_3=$(awk -F'|' -v n="$comp_choice3" 'NR==n{print $3}' "$tmp_comps3")
       rm -f "$tmp_comps3"
 
-      if [ -z "$selected_name3" ]; then
+      if [ -z "$sm_key_3" ]; then
         echo "❌ Invalid selection."
         return
       fi
 
-      local sm_key_3="${selected_name3#wo-}"
       echo "Removing sizeMapping override for $sm_key_3..."
       $OC -n "$ns" patch wo "$wo_name" --type=json \
         -p "[{\"op\":\"remove\",\"path\":\"/spec/sizeMapping/$sm_key_3\"}]" 2>/dev/null || \
@@ -860,21 +1990,168 @@ modify_component_sizing() {
   esac
 }
 
+modify_redis_sizing() {
+  local wo_name="$1"
+  local ns="$2"
+
+  echo ""
+  echo "Redis Sizing Management"
+  echo "-----------------------"
+  echo "Redis resources are set via spec.redis.* (not sizeMapping)."
+  echo ""
+  echo "  1) Modify redis-server resources   (spec.redis.redisResources)"
+  echo "  2) Modify redis-sentinel resources (spec.redis.redisSentinelResources)"
+  echo "  3) Modify redis-haproxy resources  (spec.redis.redisHAProxyResources)"
+  echo "  4) Modify redis-haproxy replicas   (spec.redis.haproxyReplicas)"
+  echo "  5) Modify redis-server replicas    (spec.redis.replicas)"
+  echo "  6) Cancel"
+  printf "Select option (1-6): "
+  read -r redis_choice
+
+  case "$redis_choice" in
+    6|"")
+      echo "Cancelled."
+      return
+      ;;
+    1|2|3)
+      case "$redis_choice" in
+        1) local field="redisResources"   label="redis-server"   ;;
+        2) local field="redisSentinelResources" label="redis-sentinel" ;;
+        3) local field="redisHAProxyResources"  label="redis-haproxy"  ;;
+      esac
+
+      local cur_cpu_req cur_mem_req cur_cpu_lim cur_mem_lim
+      cur_cpu_req=$($OC -n "$ns" get wo "$wo_name" -o jsonpath="{.spec.redis.$field.requests.cpu}"    2>/dev/null || echo "")
+      cur_mem_req=$($OC -n "$ns" get wo "$wo_name" -o jsonpath="{.spec.redis.$field.requests.memory}" 2>/dev/null || echo "")
+      cur_cpu_lim=$($OC -n "$ns" get wo "$wo_name" -o jsonpath="{.spec.redis.$field.limits.cpu}"      2>/dev/null || echo "")
+      cur_mem_lim=$($OC -n "$ns" get wo "$wo_name" -o jsonpath="{.spec.redis.$field.limits.memory}"   2>/dev/null || echo "")
+
+      echo ""
+      echo "Component: $label  (field: spec.redis.$field)"
+      printf "  CPU request : %s\n" "${cur_cpu_req:-not set}"
+      printf "  CPU limit   : %s\n" "${cur_cpu_lim:-not set}"
+      printf "  Mem request : %s\n" "${cur_mem_req:-not set}"
+      printf "  Mem limit   : %s\n" "${cur_mem_lim:-not set}"
+      echo ""
+      echo "Enter new values (press Enter to keep current):"
+      printf "  CPU request  [%s]: " "${cur_cpu_req:-not set}"; read -r new_cpu_req
+      printf "  CPU limit    [%s]: " "${cur_cpu_lim:-not set}"; read -r new_cpu_lim
+      printf "  Mem request  [%s]: " "${cur_mem_req:-not set}"; read -r new_mem_req
+      printf "  Mem limit    [%s]: " "${cur_mem_lim:-not set}"; read -r new_mem_lim
+
+      # Use existing values if nothing entered
+      [ -z "$new_cpu_req" ] && new_cpu_req="$cur_cpu_req"
+      [ -z "$new_cpu_lim" ] && new_cpu_lim="$cur_cpu_lim"
+      [ -z "$new_mem_req" ] && new_mem_req="$cur_mem_req"
+      [ -z "$new_mem_lim" ] && new_mem_lim="$cur_mem_lim"
+
+      if [ -z "$new_cpu_req" ] && [ -z "$new_cpu_lim" ] && [ -z "$new_mem_req" ] && [ -z "$new_mem_lim" ]; then
+        echo "❌ No resource values specified."
+        return
+      fi
+
+      local resources_json="{}"
+      local req_json="" lim_json=""
+      if [ -n "$new_cpu_req" ] || [ -n "$new_mem_req" ]; then
+        req_json="{"
+        [ -n "$new_cpu_req" ] && req_json="${req_json}\"cpu\":\"$new_cpu_req\","
+        [ -n "$new_mem_req" ] && req_json="${req_json}\"memory\":\"$new_mem_req\","
+        req_json="${req_json%,}}"
+      fi
+      if [ -n "$new_cpu_lim" ] || [ -n "$new_mem_lim" ]; then
+        lim_json="{"
+        [ -n "$new_cpu_lim" ] && lim_json="${lim_json}\"cpu\":\"$new_cpu_lim\","
+        [ -n "$new_mem_lim" ] && lim_json="${lim_json}\"memory\":\"$new_mem_lim\","
+        lim_json="${lim_json%,}}"
+      fi
+
+      if [ -n "$req_json" ] && [ -n "$lim_json" ]; then
+        resources_json="{\"requests\":$req_json,\"limits\":$lim_json}"
+      elif [ -n "$req_json" ]; then
+        resources_json="{\"requests\":$req_json}"
+      elif [ -n "$lim_json" ]; then
+        resources_json="{\"limits\":$lim_json}"
+      fi
+
+      echo "Updating spec.redis.$field..."
+      $OC -n "$ns" patch wo "$wo_name" --type=merge \
+        -p "{\"spec\":{\"redis\":{\"$field\":$resources_json}}}"
+      echo "✓ Redis $label resources updated successfully"
+      ;;
+
+    4)
+      local cur_replicas
+      cur_replicas=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.redis.haproxyReplicas}' 2>/dev/null || echo "")
+      echo ""
+      echo "Current spec.redis.haproxyReplicas: ${cur_replicas:-not set}"
+      printf "Enter new HAProxy replica count (or 'cancel'): "
+      read -r new_replicas
+      [ "$new_replicas" = "cancel" ] || [ -z "$new_replicas" ] && { echo "Skipped."; return; }
+      if ! [ "$new_replicas" -eq "$new_replicas" ] 2>/dev/null; then echo "❌ Invalid number."; return; fi
+      $OC -n "$ns" patch wo "$wo_name" --type=merge \
+        -p "{\"spec\":{\"redis\":{\"haproxyReplicas\":$new_replicas}}}"
+      echo "✓ Redis HAProxy replicas updated to $new_replicas"
+      ;;
+
+    5)
+      local cur_replicas
+      cur_replicas=$($OC -n "$ns" get wo "$wo_name" -o jsonpath='{.spec.redis.replicas}' 2>/dev/null || echo "")
+      echo ""
+      echo "Current spec.redis.replicas: ${cur_replicas:-not set}"
+      printf "Enter new redis-server replica count (or 'cancel'): "
+      read -r new_replicas
+      [ "$new_replicas" = "cancel" ] || [ -z "$new_replicas" ] && { echo "Skipped."; return; }
+      if ! [ "$new_replicas" -eq "$new_replicas" ] 2>/dev/null; then echo "❌ Invalid number."; return; fi
+      $OC -n "$ns" patch wo "$wo_name" --type=merge \
+        -p "{\"spec\":{\"redis\":{\"replicas\":$new_replicas}}}"
+      echo "✓ Redis server replicas updated to $new_replicas"
+      ;;
+  esac
+}
+
 # Main configuration mode function
 run_configuration_mode() {
   echo ""
   echo "╔══════════════════════════════════════════════════════════════════════════════╗"
-  echo "║                         CONFIGURATION MODE                                   ║"
+  print_box_center_line "CONFIGURATION MODE"
   echo "╠══════════════════════════════════════════════════════════════════════════════╣"
-  echo "║                                                                              ║"
-  echo "║  This mode allows you to view and modify WatsonxOrchestrate CR settings.    ║"
-  echo "║  Changes are applied immediately to the cluster.                             ║"
-  echo "║                                                                              ║"
+  print_box_blank
+  print_box_line "This mode allows you to view and modify WatsonxOrchestrate CR settings."
+  print_box_line "Changes are applied immediately to the cluster."
+  print_box_blank
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
   
   # Get WO CR name
-  local wo_name=$($OC -n "$PROJECT_CPD_INST_OPERANDS" get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}')
+  local wo_name attempt
+  wo_name=""
+  attempt=1
+  while [ "$attempt" -le 3 ]; do
+    wo_name=$($OC -n "$PROJECT_CPD_INST_OPERANDS" get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}')
+    [ -n "$wo_name" ] && break
+    [ "$attempt" -lt 3 ] && sleep 2
+    attempt=$((attempt + 1))
+  done
+  if [ -z "$wo_name" ]; then
+    local found_ns found_name found_row
+    found_row=""
+    attempt=1
+    while [ "$attempt" -le 3 ]; do
+      found_row=$($OC get wo -A --no-headers 2>/dev/null | awk 'NR==1 {print $1 "|" $2}')
+      [ -n "$found_row" ] && break
+      [ "$attempt" -lt 3 ] && sleep 2
+      attempt=$((attempt + 1))
+    done
+    found_ns=$(echo "$found_row" | awk -F'|' '{print $1}')
+    found_name=$(echo "$found_row" | awk -F'|' '{print $2}')
+    if [ -n "$found_ns" ] && [ -n "$found_name" ]; then
+      echo "ℹ️  No WatsonxOrchestrate CR found in namespace $PROJECT_CPD_INST_OPERANDS"
+      echo "ℹ️  Found WO CR '$found_name' in namespace $found_ns; using that namespace."
+      PROJECT_CPD_INST_OPERANDS="$found_ns"
+      export PROJECT_CPD_INST_OPERANDS
+      wo_name="$found_name"
+    fi
+  fi
   
   if [ -z "$wo_name" ]; then
     echo "❌ Error: No WatsonxOrchestrate CR found in namespace $PROJECT_CPD_INST_OPERANDS"
@@ -893,28 +2170,34 @@ run_configuration_mode() {
     echo "  1. Modify Size (T-shirt sizing)"
     echo "  2. Toggle HPA (Horizontal Pod Autoscaling)"
     echo "  3. Toggle DocProc"
-    echo "  4. Add/Modify/Remove Image Digest Override"
-    echo "  5. Modify Component Replicas and Resources (sizeMapping)"
-    echo "  6. Refresh current configuration"
-    echo "  7. Exit configuration mode"
+    echo "  4. Toggle DataGovernor (Metering)"
+    echo "  5. Toggle Observability"
+    echo "  6. Add/Modify/Remove Image Digest Override"
+    echo "  7. Modify Component Replicas and Resources (sizeMapping)"
+    echo "  8. Modify Redis Sizing (spec.redis.*)"
+    echo "  9. Refresh current configuration"
+    echo "  10. Exit configuration mode"
     echo ""
-    printf "Select option (1-7): "
+    printf "Select option (1-10): "
     read -r config_choice
     
     case "$config_choice" in
       1) modify_size "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
       2) modify_hpa "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
       3) modify_docproc "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
-      4) modify_image_digest "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
-      5) modify_component_sizing "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
-      6) echo "Refreshing..." ;;
-      7)
+      4) modify_datagovernor "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      5) modify_observability "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      6) modify_image_digest "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      7) modify_component_sizing "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      8) modify_redis_sizing "$wo_name" "$PROJECT_CPD_INST_OPERANDS" ;;
+      9) echo "Refreshing..." ;;
+      10)
         echo ""
         echo "Exiting configuration mode..."
         exit 0
         ;;
       *)
-        echo "❌ Invalid option. Please select 1-7."
+        echo "❌ Invalid option. Please select 1-10."
         ;;
     esac
     
@@ -960,6 +2243,9 @@ print_header() {
   wo_name=`$OCN get wo --no-headers 2>/dev/null | awk 'NR==1 {print $1}'` || :
   
   if [ -n "$wo_name" ]; then
+    print_wo_version_hotfix_info "$wo_name"
+    print_registry_prefix "$wo_name"
+
     # DocProc (agentic document processing)
     docproc_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.docproc.enabled}' 2>/dev/null || :`
     if [ -n "$docproc_enabled" ]; then
@@ -1050,6 +2336,46 @@ print_header() {
       print_box_line "  • wo.spec.wxolite.enable_ifm=Not Present"
     fi
     print_box_blank
+    
+    # DataGovernor (Metering)
+    dg_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.dataGovernor.enabled}' 2>/dev/null || :`
+    if [ -n "$dg_enabled" ]; then
+      case "$(echo "$dg_enabled" | tr '[:upper:]' '[:lower:]')" in
+        true)
+          print_box_line "DataGovernor (Metering): Enabled"
+          print_box_line "  • wo.spec.dataGovernor.enabled=true" ;;
+        false)
+          print_box_line "DataGovernor (Metering): Disabled"
+          print_box_line "  • wo.spec.dataGovernor.enabled=false" ;;
+        *)
+          print_box_line "DataGovernor (Metering): Disabled (default)"
+          print_box_line "  • wo.spec.dataGovernor.enabled=Not Present" ;;
+      esac
+    else
+      print_box_line "DataGovernor (Metering): Disabled (default)"
+      print_box_line "  • wo.spec.dataGovernor.enabled=Not Present"
+    fi
+    print_box_blank
+    
+    # Observability
+    obs_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.observability.enabled}' 2>/dev/null || :`
+    if [ -n "$obs_enabled" ]; then
+      case "$(echo "$obs_enabled" | tr '[:upper:]' '[:lower:]')" in
+        true)
+          print_box_line "Observability: Enabled"
+          print_box_line "  • wo.spec.observability.enabled=true" ;;
+        false)
+          print_box_line "Observability: Disabled"
+          print_box_line "  • wo.spec.observability.enabled=false" ;;
+        *)
+          print_box_line "Observability: Disabled (default)"
+          print_box_line "  • wo.spec.observability.enabled=Not Present" ;;
+      esac
+    else
+      print_box_line "Observability: Disabled (default)"
+      print_box_line "  • wo.spec.observability.enabled=Not Present"
+    fi
+    print_box_blank
 
     # Active-Active Configuration
     aa_enabled=`$OCN get wo "$wo_name" -o jsonpath='{.spec.activeActive.enabled}' 2>/dev/null || :`
@@ -1084,6 +2410,7 @@ print_header() {
   
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
+  print_header_details_box "$wo_name"
 }
 
 section() { echo; echo "▶ $1"; }
@@ -1335,12 +2662,17 @@ check_wo_cr() {
   wo_ready=`$OCN get wo "$wo_name" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || :`
   wo_status=`$OCN get wo "$wo_name" -o jsonpath='{.status.watsonxOrchestrateStatus}' 2>/dev/null || :`
   wo_progress=`$OCN get wo "$wo_name" -o jsonpath='{.status.progress}' 2>/dev/null || :`
+  registry_prefix=`get_wo_registry_prefix "$wo_name"`
+  registry_suffix=""
+  if ! is_default_registry_prefix "$registry_prefix"; then
+    registry_suffix=", RegistryPrefix=$registry_prefix"
+  fi
   
   if [ "$wo_ready" = "True" ] && [ "$wo_status" = "Completed" ] && [ "$wo_progress" = "100%" ]; then
-    echo "  ✅ watsonx Orchestrate ($wo_name): Ready=True, Status=Completed, Progress=100%"
+    echo "  ✅ watsonx Orchestrate ($wo_name): Ready=True, Status=Completed, Progress=100%$registry_suffix"
     return 0
   else
-    echo "  ❌ watsonx Orchestrate ($wo_name): Ready=$wo_ready, Status=$wo_status, Progress=$wo_progress"
+    echo "  ❌ watsonx Orchestrate ($wo_name): Ready=$wo_ready, Status=$wo_status, Progress=$wo_progress$registry_suffix"
     return 1
   fi
 }
@@ -3379,8 +4711,10 @@ check_and_fix_milvus_etcd() {
   # Step 2: Compact (only if we got a valid revision)
   if [ "$skip_compact" = false ]; then
     echo "  2️⃣  Compacting etcd database to revision $revision (timeout: 60s)..."
+    set +e
     compact_output=$($OCN exec "$etcd_pod" -- sh -lc "ETCDCTL_API=3 etcdctl --command-timeout=300s compact $revision" 2>&1)
     compact_exit=$?
+    set -e
     
     if [ $compact_exit -eq 0 ]; then
       echo "  ✅ Compaction completed successfully"
@@ -3419,8 +4753,9 @@ check_and_fix_milvus_etcd() {
     echo "     (Unable to check size - may be inaccessible due to NOSPACE)"
   fi
   
-  # Retry defragmentation up to 3 times
-  max_defrag_attempts=3
+  # Try defragmentation once, then verify etcd state directly. Repeated defrag
+  # attempts hide the important signal: whether alarms clear and health returns.
+  max_defrag_attempts=1
   defrag_attempt=1
   defrag_success=false
   
@@ -3582,8 +4917,10 @@ check_and_fix_milvus_etcd() {
     done
     
     # Wait for defrag to complete and get exit code
+    set +e
     wait $defrag_pid
     defrag_exit=$?
+    set -e
     defrag_output=$(cat "$defrag_log" 2>/dev/null)
     rm -f "$defrag_log"
     
@@ -3615,7 +4952,7 @@ check_and_fix_milvus_etcd() {
       if [ $defrag_attempt -lt $max_defrag_attempts ]; then
         echo "  ℹ️  Will retry defragmentation..."
       else
-        echo "  ❌ All defragmentation attempts exhausted"
+        echo "  ❌ Defragmentation did not complete successfully"
         echo "  ℹ️  Defrag cannot reclaim space when the data itself exceeds the quota."
         echo "  ℹ️  The only fix is to wipe /etcd/member and let Milvus reinitialize."
         echo
@@ -3675,14 +5012,52 @@ check_and_fix_milvus_etcd() {
   
   # Step 4: Disarm alarms
   echo "  4️⃣  Disarming etcd alarms..."
-  if $OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s alarm disarm' 2>&1; then
+  set +e
+  disarm_output=$($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl --command-timeout=300s alarm disarm' 2>&1)
+  disarm_exit=$?
+  set -e
+  printf '%s\n' "$disarm_output"
+  if [ $disarm_exit -eq 0 ]; then
     echo "  ✅ Alarms disarmed successfully"
   else
     echo "  ⚠️  Failed to disarm alarms or no alarms present"
   fi
   echo
-  
-  echo "  ✅ Etcd database space fix completed!"
+
+  # Step 5: Verify defrag actually recovered etcd. A successful defrag command is
+  # not enough if the NOSPACE alarm remains or the endpoint is still unhealthy.
+  echo "  5️⃣  Verifying etcd alarms and endpoint health..."
+  set +e
+  alarm_output=$($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl alarm list' 2>&1)
+  alarm_exit=$?
+  health_output=$($OCN exec "$etcd_pod" -- sh -lc 'ETCDCTL_API=3 etcdctl endpoint health -w table' 2>&1)
+  health_exit=$?
+  set -e
+
+  if [ $alarm_exit -eq 0 ] && [ -z "$alarm_output" ]; then
+    echo "  ✅ No active etcd alarms"
+  else
+    echo "  ❌ Etcd alarms are still present or could not be checked"
+    [ -n "$alarm_output" ] && printf '%s\n' "$alarm_output" | sed 's/^/     /'
+  fi
+
+  if [ $health_exit -eq 0 ]; then
+    echo "  ✅ Etcd endpoint health check passed"
+    printf '%s\n' "$health_output" | sed 's/^/     /'
+  else
+    echo "  ❌ Etcd endpoint health check failed"
+    [ -n "$health_output" ] && printf '%s\n' "$health_output" | sed 's/^/     /'
+  fi
+  echo
+
+  if [ $alarm_exit -ne 0 ] || [ -n "$alarm_output" ] || [ $health_exit -ne 0 ]; then
+    echo "  ❌ Etcd database space fix did not verify cleanly."
+    echo "  ℹ️  Defrag is not considered successful until alarm list is empty and endpoint health passes."
+    echo "  ℹ️  Follow the runbook fallback: wipe /etcd/member and reinitialize Milvus etcd."
+    return 1
+  fi
+
+  echo "  ✅ Etcd database space fix completed and verified!"
   echo "  ℹ️  You may need to delete the failing Milvus pod to restart it with the fixed etcd"
   echo
   
@@ -4234,8 +5609,10 @@ run_troubleshoot_mode() {
   echo
   
   # Check operators first
-  check_orchestrate_operators || :
-  echo
+  if [ "${CHECK_OPERATORS:-1}" -eq 1 ]; then
+    check_orchestrate_operators || :
+    echo
+  fi
 
   # Check and fix Milvus etcd issues (CrashLoopBackOff + database space)
   check_and_fix_milvus_etcd || :
@@ -4395,11 +5772,16 @@ run_health_checks() {
   edb_ok=0; kafka_ok=0; redis_ok=0; obc_ok=0; wxd_ok=0; jobs_ok=0; knative_eventing_ok=0; operators_ok=0; storage_pods_ok=0; all_operand_pods_ok=0
 
   # Check operators first (unless skipped in troubleshoot mode)
-  if [ "$skip_troubleshoot_items" -eq 0 ]; then
-    section "Checking Operators"
-    operators_ok=1; if check_orchestrate_operators; then operators_ok=0; fi
+  if [ "${CHECK_OPERATORS:-1}" -eq 1 ]; then
+    if [ "$skip_troubleshoot_items" -eq 0 ]; then
+      section "Checking Operators"
+      operators_ok=1; if check_orchestrate_operators; then operators_ok=0; fi
+    else
+      # Operators already checked in troubleshoot mode, mark as ok
+      operators_ok=0
+    fi
   else
-    # Operators already checked in troubleshoot mode, mark as ok
+    # Operator checks disabled, mark as ok
     operators_ok=0
   fi
 
@@ -4503,14 +5885,33 @@ run_health_checks() {
 
 # --------------------- Main retry loop ----------------------
 resolve_namespaces
+
+if [ "${CHECK_PERMISSIONS_MODE:-0}" -eq 1 ]; then
+  run_permissions_check
+  exit $?
+fi
+
 detect_wxo_edition
+
+# Run run_id trace mode if requested (exits after completion)
+# -r with a UUID   → pass it straight to trace_run_id (skips discovery)
+# -r alone         → interactive discovery mode
+if [ "${TRACE_RUN_ID_MODE:-0}" -eq 1 ] || [ -n "${TRACE_RUN_ID:-}" ]; then
+  trace_run_id "${TRACE_RUN_ID:-}"
+  exit 0
+fi
+
+# Run pod grep mode if requested (exits after completion)
+if [ -n "${GREP_TEXT:-}" ]; then
+  grep_pods "$GREP_TEXT"
+  exit 0
+fi
 
 trap 'echo; echo "Interrupted. Exiting."; exit 1' INT TERM
 
 # Run configuration mode if enabled (exits after completion)
 if [ "${CONFIG_MODE:-0}" -eq 1 ]; then
   run_configuration_mode
-  # Configuration mode exits within the function, so this line is never reached
 fi
 
 # Show troubleshoot warning BEFORE header (if troubleshoot mode is enabled)
@@ -4534,7 +5935,8 @@ if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ] && [ "${SKIP_WARNING:-0}" -eq 0 ]; then
   echo "║                                                                              ║"
   echo "╚══════════════════════════════════════════════════════════════════════════════╝"
   echo ""
-  read -p "Press Enter to continue or Ctrl+C to cancel..." </dev/tty
+  printf '%s' "Press Enter to continue or Ctrl+C to cancel..."
+  IFS= read -r _ </dev/tty
   echo ""
 fi
 
@@ -4543,19 +5945,15 @@ print_header
 
 # Run troubleshoot mode if enabled - run troubleshoot + full health check in each cycle until healthy
 if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
-
   TRY=1
   while [ "$TRY" -le "$MAX_TRIES" ]; do
     echo
     echo "=========================================="
     echo "🔄 TROUBLESHOOT + HEALTH CHECK CYCLE $TRY of $MAX_TRIES"
     echo "=========================================="
-    
-    # Run troubleshoot diagnostics first
+
     run_troubleshoot_mode
     echo
-    
-    # Now run full health check (skip operators since already checked in troubleshoot)
     run_health_checks 1
 
     if [ "$operators_ok" -eq 0 ] && [ "$pods_ok" -eq 0 ] && [ "$wo_cr_ok" -eq 0 ] && [ "$wocs_ok" -eq 0 ] \
@@ -4580,7 +5978,6 @@ if [ "${TROUBLESHOOT_MODE:-0}" -eq 1 ]; then
   echo "❌ Exhausted MAX_TRIES=$MAX_TRIES without passing all enabled checks. Exiting with code 1."
   exit 1
 else
-  # Regular health check mode (no troubleshooting)
   TRY=1
   while [ "$TRY" -le "$MAX_TRIES" ]; do
     echo
@@ -4588,7 +5985,6 @@ else
     echo "🔄 HEALTH CHECK CYCLE $TRY of $MAX_TRIES"
     echo "=========================================="
 
-    # Run health checks
     run_health_checks
 
     if [ "$operators_ok" -eq 0 ] && [ "$pods_ok" -eq 0 ] && [ "$wo_cr_ok" -eq 0 ] && [ "$wocs_ok" -eq 0 ] \
