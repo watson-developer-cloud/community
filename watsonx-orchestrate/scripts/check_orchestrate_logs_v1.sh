@@ -9,6 +9,7 @@ CUSTOM_PATTERN=""
 RUN_ONCE=false
 EXCLUSIONS=()
 SCAN_ERRORS_FOUND=0
+PROMPT_INPUT=""
 
 ERROR_PATTERN='(^|[^[:alnum:]_])(error|err|fatal|panic|exception|traceback|segmentation fault|oomkilled|crashloopbackoff|failed)([^[:alnum:]_]|$)'
 NON_ERROR_LEVEL_PATTERN='(^|[^[:alnum:]_])(info|debug|trace)([^[:alnum:]_]|$)|"level"[[:space:]]*:[[:space:]]*"(INFO|DEBUG|TRACE)"'
@@ -99,6 +100,14 @@ require_command jq
 oc whoami >/dev/null 2>&1 || die "Not logged in to an OpenShift cluster"
 oc get namespace "$NAMESPACE" >/dev/null 2>&1 || die "Namespace not found or not accessible: $NAMESPACE"
 
+# When invoked as `curl ... | bash`, stdin contains the script. Read interactive
+# answers directly from the controlling terminal instead.
+if [[ -r /dev/tty && -w /dev/tty ]]; then
+  PROMPT_INPUT="/dev/tty"
+elif [[ -t 0 ]]; then
+  PROMPT_INPUT="/dev/stdin"
+fi
+
 if [[ -n "$CUSTOM_PATTERN" ]]; then
   set +e
   printf '' | grep -Ei -- "$CUSTOM_PATTERN" >/dev/null 2>&1
@@ -157,10 +166,10 @@ validate_custom_pattern() {
 prompt_for_custom_pattern() {
   local entered_pattern=""
   [[ -z "$CUSTOM_PATTERN" ]] || return 0
-  [[ -t 0 ]] || return 0
+  [[ -n "$PROMPT_INPUT" ]] || return 0
 
   printf 'Optionally enter specific text/regex to find in addition to errors (continuing in 20 seconds): '
-  if IFS= read -r -t 20 entered_pattern; then
+  if IFS= read -r -t 20 entered_pattern < "$PROMPT_INPUT"; then
     if [[ -z "$entered_pattern" ]]; then
       printf 'No additional search text entered; scanning errors only.\n'
     elif validate_custom_pattern "$entered_pattern"; then
@@ -180,14 +189,14 @@ select_all() {
 }
 
 if [[ -z "$DEPLOYMENT_ARGUMENT" ]]; then
-  [[ -t 0 ]] || die "Interactive selection requires a terminal; use --deployments all or provide deployment names"
+  [[ -n "$PROMPT_INPUT" ]] || die "Interactive selection requires a terminal; use --deployments all or provide deployment names"
   printf 'WXO-owned deployments in namespace %s:\n' "$NAMESPACE"
   for index in "${!discovered[@]}"; do
     printf '  %2d) %s\n' "$((index + 1))" "${discovered[$index]}"
   done
   printf '   a) all\n'
   printf 'Select comma-separated numbers/names or all: '
-  IFS= read -r DEPLOYMENT_ARGUMENT
+  IFS= read -r DEPLOYMENT_ARGUMENT < "$PROMPT_INPUT"
 fi
 
 deployment_argument_lower=$(printf '%s' "$DEPLOYMENT_ARGUMENT" | tr '[:upper:]' '[:lower:]')
@@ -404,24 +413,33 @@ scan() {
 }
 
 prompt_for_exclusion() {
-  local exclusion
+  local answer=""
+  local exclusion=""
   [[ $SCAN_ERRORS_FOUND -eq 1 ]] || return 0
   $RUN_ONCE && return 0
-  [[ -t 0 ]] || return 0
+  [[ -n "$PROMPT_INPUT" ]] || return 0
 
-  printf '\nErrors were found. Enter text to exclude from future scans (continuing in 20 seconds): '
-  exclusion=""
-  if IFS= read -r -t 20 exclusion; then
-    if [[ -n "$exclusion" ]]; then
+  printf '\nErrors were found. Add exclusion text for future scans? [y/N] (continuing in 10 seconds): '
+  if ! IFS= read -r -t 10 answer < "$PROMPT_INPUT"; then
+    printf '\nNo response within 10 seconds; no exclusion added.\n'
+    return 0
+  fi
+
+  case "$answer" in
+    y|Y|yes|YES|Yes)
+      while [[ -z "$exclusion" ]]; do
+        printf 'Enter non-empty text to exclude (waiting for input): '
+        IFS= read -r exclusion < "$PROMPT_INPUT"
+        [[ -n "$exclusion" ]] || printf 'Exclusion text cannot be empty.\n'
+      done
       EXCLUSIONS+=("$exclusion")
       printf '✅ Added literal exclusion for subsequent scans: %s\n' "$exclusion"
       printf 'Active exclusions: %s\n' "${EXCLUSIONS[*]}"
-    else
+      ;;
+    *)
       printf 'No exclusion added; continuing.\n'
-    fi
-  else
-    printf '\nNo exclusion entered within 20 seconds; continuing.\n'
-  fi
+      ;;
+  esac
 }
 
 printf 'Selected %d deployment(s): %s\n' "${#selected[@]}" "${selected[*]}"
